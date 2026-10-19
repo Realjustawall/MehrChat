@@ -171,6 +171,55 @@ class RatchetTests(unittest.TestCase):
         self.assertEqual(before, self.a.identity)
         self.assertIs(self.a.identity, self.a.d["identity"])
 
+    def test_removed_member_card_remains_for_historical_display(self):
+        gid = self.a.create_group("group", [self.b.me, self.c.me])
+        pump(self.engines)
+        self.b.d["contacts"].pop(self.c.me)
+        self.a.update_group(gid, "new", [self.b.me])
+        pump(self.engines)
+        self.assertEqual(self.b.peer_card(self.c.me)["body"]["id"], self.c.me)
+        self.assertNotIn(self.c.me, self.b.d["contacts"])
+
+    def test_group_scoped_member_cannot_create_unverified_new_group(self):
+        self.a.create_group("first", [self.b.me, self.c.me])
+        pump(self.engines)
+        self.b.d["contacts"].pop(self.c.me)
+        self.c.create_group("unsolicited", [self.b.me])
+        item = next(
+            p["item"]
+            for p in self.c.d["outbox"]
+            if p["item"]["body"]["to"] == self.b.me
+            and p["item"]["body"]["kind"] == "group"
+        )
+        before = copy.deepcopy(self.b.d["sessions"][self.c.me])
+        with self.assertRaises(KeyError):
+            self.b.ingest(item)
+        self.assertEqual(before, self.b.d["sessions"][self.c.me])
+
+    def test_legacy_outbox_migrates_without_replacing_identity(self):
+        now = int(time.time())
+        payload = dict(
+            id="f" * 32,
+            chat={"private": sorted([self.a.me, self.b.me])},
+            author=self.a.me,
+            created=now,
+            expires=now + 3600,
+            kind="message",
+            text="migrate me",
+        )
+        item = envelope(self.a.identity, self.b.card, payload, payload["expires"])
+        vault = MemoryVault("dummy")
+        vault.data = copy.deepcopy(self.a.d)
+        vault.data["sessions"] = {}
+        vault.data["messages"][self.chat] = [dict(payload, state="pending")]
+        vault.data["outbox"] = [{"item": item, "chat": self.chat, "mid": payload["id"]}]
+        migrated = Engine(vault)
+        self.assertEqual(migrated.me, self.a.me)
+        self.assertTrue(migrated.d["pending_secure"][self.b.me])
+        self.assertTrue(
+            all(p["item"]["body"]["kind"] == "session" for p in migrated.d["outbox"])
+        )
+
 
 class PersistenceTests(unittest.TestCase):
     def test_password_change_and_exclusive_lock(self):

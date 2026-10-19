@@ -1,16 +1,27 @@
 import os
+import tempfile
+from pathlib import Path
 
 os.environ.setdefault("KIVY_NO_ARGS", "1")
 from mehrchat.ui import MehrApp
 
 if __name__ == "__main__":
     app = MehrApp()
-    if os.environ.get("MEHRCHAT_SMOKE_TEST") == "1":
-        from kivy.clock import Clock
+    mode = os.environ.get("MEHRCHAT_SMOKE_TEST")
+    if mode == "flow":
+        from mehrchat.smoke import install
 
-        def smoke(*_):
-            print("NATIVE_UI_SMOKE_OK", flush=True)
-            app.stop()
+        with tempfile.TemporaryDirectory() as directory:
+            app.data_path = lambda: Path(directory) / "identity.mcv"
+            install(app, os.environ["MEHRCHAT_SMOKE_RESULT"])
+            app.run()
+    else:
+        if mode == "1":
+            from kivy.clock import Clock
 
-        Clock.schedule_once(smoke, 1)
-    app.run()
+            def done(*_):
+                print("NATIVE_UI_SMOKE_OK", flush=True)
+                app.stop()
+
+            Clock.schedule_once(done, 1)
+        app.run()

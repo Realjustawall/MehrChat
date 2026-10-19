@@ -54,6 +54,37 @@ class Engine:
         self.lookup_requests = []
         self.connected = {}
         self.rejected = 0
+        legacy = [
+            p
+            for p in self.d["outbox"]
+            if p["item"]["body"].get("v") == 1
+            and p["item"]["body"].get("kind") != "session"
+        ]
+        if legacy:
+            self.d["outbox"] = [p for p in self.d["outbox"] if p not in legacy]
+            for entry in legacy:
+                message = next(
+                    (
+                        m
+                        for m in self.d["messages"].get(entry["chat"], [])
+                        if m["id"] == entry["mid"]
+                    ),
+                    None,
+                )
+                if message and message["expires"] > time.time():
+                    payload = {
+                        k: v
+                        for k, v in message.items()
+                        if k not in ("state", "deliveries")
+                    }
+                    self.secure.queue(
+                        entry["item"]["body"]["to"],
+                        payload,
+                        payload["expires"],
+                        payload["kind"],
+                        entry["chat"],
+                        entry["mid"],
+                    )
 
     @contextmanager
     def transaction(self):
@@ -96,9 +127,12 @@ class Engine:
         if pid in self.d["contacts"]:
             return self.d["contacts"][pid]
         for group in self.d["groups"].values():
-            cards = group["body"].get("cards", {})
-            if pid in cards:
-                return cards[pid]
+            bodies = [entry["body"] for entry in reversed(group.get("chain", []))] + [
+                group["body"]
+            ]
+            for body in bodies:
+                if pid in body.get("cards", {}):
+                    return body["cards"][pid]
         raise KeyError("Unknown identity")
 
     def dm_id(self, peer):

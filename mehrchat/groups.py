@@ -58,6 +58,12 @@ class Groups:
             gid = body["id"]
             if len(gid) != 64 or any(c not in "0123456789abcdef" for c in gid):
                 raise ValueError("Invalid group ID")
+            if (
+                gid not in self.e.d["groups"]
+                and owner != self.e.me
+                and owner not in self.e.d["contacts"]
+            ):
+                raise KeyError("Group creator is not verified")
             owner_card = self.e.peer_card(owner)
             for i, entry in enumerate(chain):
                 b = verify(owner_card, entry)
