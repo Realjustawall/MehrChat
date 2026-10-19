@@ -19,6 +19,7 @@ from kivy.clock import Clock
 from kivy.core.window import Window
 from kivy.graphics import Color, RoundedRectangle
 from kivy.metrics import dp
+from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.checkbox import CheckBox
@@ -53,6 +54,28 @@ class Surface(BoxLayout):
 
     def update_rect(self, *_):
         self.rect.pos, self.rect.size = self.pos, self.size
+
+
+class ChatRow(ButtonBehavior, Surface):
+    pass
+
+
+class Avatar(Surface):
+    def __init__(self, name, identity, **kw):
+        palette = [
+            (0.25, 0.56, 0.69, 1),
+            (0.43, 0.42, 0.69, 1),
+            (0.31, 0.59, 0.48, 1),
+            (0.70, 0.45, 0.34, 1),
+        ]
+        super().__init__(
+            color=palette[int(identity[:2], 16) % len(palette)],
+            size_hint=(None, None),
+            size=(dp(48), dp(48)),
+            **kw
+        )
+        self.rect.radius = [dp(24)]
+        self.add_widget(label(name.strip()[:1], font_size=dp(23)))
 
 
 def label(text="", **kw):
@@ -265,7 +288,7 @@ class MehrApp(App):
             size_hint_x=None,
             width=dp(320),
             padding=dp(10),
-            spacing=dp(8),
+            spacing=dp(4),
         )
         toolbar = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
         toolbar.add_widget(
@@ -285,7 +308,7 @@ class MehrApp(App):
         self.sidebar.add_widget(self.search)
         scroll = ScrollView()
         self.chatlist = BoxLayout(
-            orientation="vertical", size_hint_y=None, spacing=dp(3)
+            orientation="vertical", size_hint_y=None, spacing=dp(2)
         )
         self.chatlist.bind(minimum_height=self.chatlist.setter("height"))
         scroll.add_widget(self.chatlist)
@@ -385,10 +408,76 @@ class MehrApp(App):
     def refresh_sidebar(self):
         self.chatlist.clear_widgets()
         term = self.search.text.lower()
-        for cid, name in self.chats():
+
+        def recent(cid):
+            return max(
+                (
+                    m["created"]
+                    for m in self.engine.d["messages"].get(cid, [])
+                    if m["expires"] > time.time()
+                ),
+                default=0,
+            )
+
+        for cid, name in sorted(
+            self.chats(), key=lambda row: recent(row[0]), reverse=True
+        ):
             if term and term not in name.lower():
                 continue
-            self.chatlist.add_widget(button(name, lambda c=cid: self.select(c)))
+            history = [
+                m
+                for m in self.engine.d["messages"].get(cid, [])
+                if m["expires"] > time.time()
+            ]
+            last = history[-1] if history else None
+            preview = (
+                (
+                    last.get("text", "")
+                    if last["kind"] != "file"
+                    else "فایل: " + last.get("filename", "")
+                )
+                if last
+                else ""
+            )
+            if not last and cid in self.engine.d["groups"]:
+                preview = (
+                    str(len(self.engine.d["groups"][cid]["body"]["members"])) + " عضو"
+                )
+            row = ChatRow(
+                size_hint_y=None,
+                height=dp(76),
+                padding=dp(10),
+                spacing=dp(10),
+                color=(0.16, 0.32, 0.43, 1) if cid == self.chat else PANEL,
+            )
+            row.bind(on_release=lambda _, c=cid: self.select(c))
+            row.add_widget(Avatar(name, cid, pos_hint={"center_y": 0.5}))
+            column = BoxLayout(orientation="vertical", spacing=dp(3))
+            title = label(name, halign="right", shorten=True, shorten_from="right")
+            subtitle = label(
+                preview.replace("\n", " "),
+                halign="right",
+                font_size=dp(12),
+                shorten=True,
+                shorten_from="right",
+            )
+            subtitle.color = (0.61, 0.69, 0.75, 1)
+            for item in (title, subtitle):
+                item.bind(
+                    size=lambda widget, value: setattr(widget, "text_size", value)
+                )
+                column.add_widget(item)
+            row.add_widget(column)
+            if last:
+                stamp = label(
+                    time.strftime("%H:%M", time.localtime(last["created"])),
+                    size_hint_x=None,
+                    width=dp(34),
+                    font_size=dp(10),
+                )
+                stamp.color = (0.61, 0.69, 0.75, 1)
+                row.add_widget(stamp)
+            self.chatlist.add_widget(row)
 
     def select(self, cid):
         self.chat = cid
