@@ -2,7 +2,7 @@
 Always uses a temporary vault; never reads the interactive user's account.
 """
 
-import json, time
+import json, os, time
 from pathlib import Path
 from kivy.clock import Clock
 from .crypto import create_identity, public_card
@@ -15,6 +15,8 @@ TEXT = "سلام، آزمون پیام فارسی"
 
 def install(app, result_path):
     deadline = time.monotonic() + 35
+    config_path = os.environ.get("MEHRCHAT_SMOKE_NETWORK_CONFIG")
+    network = json.loads(Path(config_path).read_text()) if config_path else None
 
     def login(*_):
         app.username.text = "ci_tester"
@@ -28,7 +30,11 @@ def install(app, result_path):
             raise AssertionError("GUI login timed out")
         if app.engine is None:
             return True
-        peer = public_card(create_identity("ci_peer", "مخاطب"))
+        peer = (
+            network["card"]
+            if network
+            else public_card(create_identity("ci_peer", "مخاطب"))
+        )
         # Exercise compiled crypto extensions and serialized Double Ratchet state.
         recipient = ratchet.private_key()
         secret, ad = random(32), b"MehrChat compiled GUI CI"
@@ -41,11 +47,13 @@ def install(app, result_path):
         alice, plaintext = ratchet.decrypt(alice, reply, ad)
         assert plaintext == b"reply"
         app.engine.add_contact(json.dumps(peer), peer["body"]["id"])
+        if network:
+            app.engine.configure_relays([network["relay"]])
         chat = app.engine.dm_id(peer["body"]["id"])
         app.select(chat)
         app.compose.text = TEXT
         app.send()
-        assert app.engine.d["messages"][chat][-1]["text"] == TEXT
+        assert any(m.get("text") == TEXT for m in app.engine.d["messages"][chat])
         group = app.engine.create_group("گروه آزمون", [peer["body"]["id"]])
         app.select(group)
         steps = [
@@ -78,9 +86,8 @@ def install(app, result_path):
                     raise AssertionError("GUI restore timed out")
                 if app.engine is None:
                     return True
-                assert (
-                    app.engine.me == identity
-                    and app.engine.d["messages"][chat][-1]["text"] == TEXT
+                assert app.engine.me == identity and any(
+                    m.get("text") == TEXT for m in app.engine.d["messages"][chat]
                 )
                 Path(result_path).write_text(
                     json.dumps(
@@ -93,6 +100,11 @@ def install(app, result_path):
                             "vault_encrypted": True,
                             "lock_unlock": True,
                             "identity_preserved": True,
+                            **(
+                                {"tcp_noise_e2ee_request_reply": True}
+                                if network
+                                else {}
+                            ),
                         }
                     )
                 )
@@ -102,7 +114,23 @@ def install(app, result_path):
 
             Clock.schedule_interval(restored, 0.1)
 
-        Clock.schedule_once(next_step, 0.2)
+        if network:
+
+            def network_ready(*_):
+                if time.monotonic() > deadline:
+                    raise AssertionError("Android encrypted network reply timed out")
+                if not any(
+                    m["author"] == peer["body"]["id"]
+                    and m.get("text") == network["expected_reply"]
+                    for m in app.engine.d["messages"].get(chat, [])
+                ):
+                    return True
+                Clock.schedule_once(next_step, 0.2)
+                return False
+
+            Clock.schedule_interval(network_ready, 0.1)
+        else:
+            Clock.schedule_once(next_step, 0.2)
         return False
 
     Clock.schedule_once(login, 0.3)

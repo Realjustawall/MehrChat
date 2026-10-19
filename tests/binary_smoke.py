@@ -86,15 +86,9 @@ async def run():
             assert b.d["messages"][chat][0]["text"] == "NATIVE-PRIVATE-CONTENT-سلام"
             b.delete(chat, mid)
             await until(lambda: not a.d["messages"][chat])
-            for path in Path(root).glob("queue.sqlite*"):
-                raw = path.read_bytes()
-                assert b"NATIVE-PRIVATE-CONTENT" not in raw
-                for e in engines:
-                    assert e.identity["box_secret"].encode() not in raw
             print(
                 "Compiled relay Noise / bootstrap / Double Ratchet / receipt / bilateral deletion: PASS"
             )
-            print("Queue plaintext and user private-key checks: PASS")
         finally:
             for e in engines:
                 e.stop()
@@ -114,6 +108,14 @@ async def run():
                 else:
                     process.terminate()
             process.wait(timeout=10)
+        # Windows denies reads of live SQLite WAL/SHM mappings. Inspect after
+        # terminating the complete compiled process tree, before temp cleanup.
+        for path in Path(root).glob("queue.sqlite*"):
+            raw = path.read_bytes()
+            assert b"NATIVE-PRIVATE-CONTENT" not in raw
+            for engine in engines:
+                assert engine.identity["box_secret"].encode() not in raw
+        print("Queue plaintext and user private-key checks: PASS")
 
 
 asyncio.run(run())

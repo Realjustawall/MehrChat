@@ -22,7 +22,16 @@ envfile=$(adb shell run-as "$package" find files -name p4a_env_vars.txt | tr -d 
 case "$envfile" in files/*/p4a_env_vars.txt) ;; *) echo 'App environment file not found';exit 1;; esac
 private_dir=$(adb shell run-as "$package" pwd | tr -d '\r')
 result="$private_dir/files/ci-flow.json"
-adb shell "run-as $package sh -c 'printf \"\\nMEHRCHAT_SMOKE_TEST=flow\\nMEHRCHAT_SMOKE_RESULT=$result\\n\" >> $envfile'"
+python scripts/android_network_peer.py --config reports/android-network-public.json > reports/android-network-peer.txt 2>&1 &
+peer_pid=$!
+trap 'kill "$peer_pid" 2>/dev/null || true; wait "$peer_pid" 2>/dev/null || true' EXIT
+for index in $(seq 1 30); do
+  if [ -s reports/android-network-public.json ]; then break;fi
+  sleep 1
+done
+adb shell "run-as $package sh -c 'cat > files/ci-network.json'" < reports/android-network-public.json
+
+adb shell "run-as $package sh -c 'printf \"\\nMEHRCHAT_SMOKE_TEST=flow\\nMEHRCHAT_SMOKE_RESULT=$result\\nMEHRCHAT_SMOKE_NETWORK_CONFIG=$private_dir/files/ci-network.json\\n\" >> $envfile'"
 adb logcat -c
 adb shell am start -W -n "$component" >> reports/android-launch.txt
 for index in $(seq 1 60); do
@@ -35,7 +44,7 @@ python - <<'PY'
 import json
 from pathlib import Path
 result=json.loads(Path('reports/android-gui-flow.json').read_text())
-assert result and all(result.values()),result
+assert result and all(result.values()) and result.get("tcp_noise_e2ee_request_reply"),result
 print('Android encrypted account / Persian chat / group / dialogs / lock / restore: PASS')
 PY
 printf 'APK installed and shared GUI flows completed on API 35 emulator: PASS\n' >> reports/android-launch.txt

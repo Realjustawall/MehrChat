@@ -104,6 +104,11 @@ for name, version in {
     "doubleratchet": "1.3.0",
     "noiseprotocol": "0.3.1",
     "chardet": "5.2.0",
+    "pydantic": "2.12.3",
+    "pydantic-core": "2.41.4",
+    "typing-extensions": "4.15.0",
+    "annotated-types": "0.7.0",
+    "typing-inspection": "0.4.2",
 }.items():
     assert report["versions"].get(name) == version, (name, report["versions"].get(name))
 xml = subprocess.check_output(
