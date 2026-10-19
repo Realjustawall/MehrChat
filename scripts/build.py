@@ -45,8 +45,6 @@ if kind == "client" and sys.platform == "win32":
         raise RuntimeError("ANGLE runtime DLLs were not installed")
     for library in libraries.values():
         args += ["--add-binary", str(library) + os.pathsep + "."]
-    for module in ("kivy_deps.angle", "kivy_deps.glew", "kivy_deps.sdl2"):
-        args += ["--hidden-import", module]
     print("Bundled Windows graphics libraries:", len(libraries), flush=True)
 
 if sys.platform.startswith("linux"):

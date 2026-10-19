@@ -4,7 +4,7 @@ from unittest.mock import patch
 from test_security import clients, pump, MemoryVault
 import test_security as legacy
 from mehrchat.client import Engine
-from mehrchat.crypto import pack, signed, envelope, public_card, dec
+from mehrchat.crypto import pack, signed, envelope, public_card, dec, enc
 from mehrchat.server import Relay
 from mehrchat.vault import Vault
 
@@ -125,6 +125,43 @@ class RatchetTests(unittest.TestCase):
         self.a.send(self.chat, file_bytes=b"private", filename="file")
         m = self.a.d["messages"][self.chat][-1]
         self.assertEqual(m["expires"] - m["created"], 30 * 86400)
+
+    def test_unsafe_received_filename_rolls_back_ratchet(self):
+        for filename in (
+            "../../startup.desktop",
+            "C:\\startup.bat",
+            "folder/file.txt",
+            "file:stream",
+            "NUL.txt",
+            "a\x00.txt",
+            "a\u202eexe.txt",
+            "..",
+        ):
+            with self.subTest(filename=filename):
+                now = int(time.time())
+                payload = dict(
+                    id="f" * 32,
+                    chat={"private": [self.a.me, self.b.me]},
+                    author=self.a.me,
+                    created=now,
+                    expires=now + 3600,
+                    kind="file",
+                    filename=filename,
+                    file=enc(b"data"),
+                    text="",
+                )
+                packet = self.a.secure.encrypt(self.b.me, payload, now + 3600, "file")
+                before = copy.deepcopy(self.b.d)
+                with self.assertRaises(ValueError):
+                    self.b.ingest(packet)
+                self.assertEqual(before, self.b.d)
+
+    def test_unsafe_outgoing_filename_rejected(self):
+        self.a.files_enabled = True
+        before = copy.deepcopy(self.a.d)
+        with self.assertRaises(ValueError):
+            self.a.send(self.chat, file_bytes=b"data", filename="../startup.desktop")
+        self.assertEqual(before, self.a.d)
 
     def test_group_removal_rejects_stale_membership(self):
         gid = self.a.create_group("old", [self.b.me, self.c.me])

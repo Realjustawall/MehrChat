@@ -29,7 +29,7 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
 from kivy.utils import platform
 from .vault import Vault
-from .client import Engine
+from .client import Engine, safe_filename
 from .crypto import public_card, check_card
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -1012,6 +1012,10 @@ class MehrApp(App):
         self.choose_document("open", "mehr-backup.mcv", load)
 
     def choose_document(self, mode, name, callback):
+        try:
+            name = safe_filename(name)
+        except ValueError:
+            name = "file.bin"
         if platform == "android":
             from jnius import autoclass
             from android import activity

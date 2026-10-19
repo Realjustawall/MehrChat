@@ -24,6 +24,29 @@ from .crypto import (
 from .wire import connect
 
 
+def safe_filename(name):
+    reserved = {"CON", "PRN", "AUX", "NUL"} | {
+        prefix + str(number) for prefix in ("COM", "LPT") for number in range(1, 10)
+    }
+    if (
+        not isinstance(name, str)
+        or not name
+        or len(name.encode("utf-8")) > 240
+        or name in (".", "..")
+        or name.endswith((" ", "."))
+        or name.split(".", 1)[0].rstrip(" .").upper() in reserved
+        or any(
+            ord(char) < 32
+            or char in '<>:"/\\|?*'
+            or "\u202a" <= char <= "\u202e"
+            or "\u2066" <= char <= "\u2069"
+            for char in name
+        )
+    ):
+        raise ValueError("نام فایل نامعتبر است")
+    return name
+
+
 class Engine:
     def __init__(self, vault):
         self.vault = vault
@@ -224,7 +247,9 @@ class Engine:
                 if len(file_bytes) > 4 * 1024 * 1024:
                     raise ValueError("حداکثر حجم فایل ۴ مگابایت است")
                 payload.update(
-                    kind="file", filename=filename or "file.bin", file=enc(file_bytes)
+                    kind="file",
+                    filename=safe_filename(filename or "file.bin"),
+                    file=enc(file_bytes),
                 )
             if payload["kind"] not in ("message", "file", "group"):
                 raise ValueError("Invalid kind")
@@ -369,6 +394,8 @@ class Engine:
             elif payload["kind"] in ("message", "group", "file"):
                 if len(payload.get("text", "")) > 16000:
                     raise ValueError("Too long")
+                if payload["kind"] == "file":
+                    safe_filename(payload.get("filename"))
                 if (
                     payload["kind"] == "file"
                     and len(dec(payload["file"])) > 4 * 1024 * 1024
