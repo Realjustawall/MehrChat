@@ -6,9 +6,11 @@ from pathlib import Path
 os.environ.setdefault("KIVY_NO_ARGS", "1")
 if sys.platform == "win32":
     os.environ.setdefault("KIVY_GL_BACKEND", "angle_sdl2")
-from mehrchat.ui import MehrApp
 
-if __name__ == "__main__":
+
+def run():
+    from mehrchat.ui import MehrApp
+
     app = MehrApp()
     mode = os.environ.get("MEHRCHAT_SMOKE_TEST")
     if mode == "flow":
@@ -28,3 +30,23 @@ if __name__ == "__main__":
 
             Clock.schedule_once(done, 1)
         app.run()
+
+
+if __name__ == "__main__":
+    if os.environ.get("MEHRCHAT_SMOKE_TEST") == "flow" and os.environ.get(
+        "MEHRCHAT_SMOKE_LOG"
+    ):
+        import traceback
+
+        with open(
+            os.environ["MEHRCHAT_SMOKE_LOG"], "w", encoding="utf-8", buffering=1
+        ) as log:
+            sys.stdout = sys.stderr = log
+            try:
+                run()
+            except BaseException:
+                traceback.print_exc(file=log)
+                log.flush()
+                os._exit(1)
+    else:
+        run()

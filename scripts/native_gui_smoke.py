@@ -13,17 +13,23 @@ with tempfile.TemporaryDirectory() as directory:
     env = os.environ.copy()
     env["MEHRCHAT_SMOKE_TEST"] = "flow"
     env["MEHRCHAT_SMOKE_RESULT"] = str(result)
+    logfile = Path(directory) / "gui.log"
+    env["MEHRCHAT_SMOKE_LOG"] = str(logfile)
     if os.name == "nt":
         env["KIVY_GL_BACKEND"] = "angle_sdl2"
-    run = subprocess.run(
-        [str(exe)],
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        timeout=60,
-    )
-    print(run.stdout)
+    try:
+        run = subprocess.run(
+            [str(exe)],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=60,
+        )
+        print(run.stdout)
+    finally:
+        if logfile.exists():
+            print(logfile.read_text(encoding="utf-8", errors="replace"))
     if run.returncode:
         raise SystemExit(run.returncode)
     assert result.exists(), "Native GUI did not finish its account/lock/chat flow"
