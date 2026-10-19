@@ -1,0 +1,21 @@
+[Unit]
+Description=MehrChat experimental encrypted relay
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=mehrchat
+Group=mehrchat
+WorkingDirectory=/opt/mehrchat
+ExecStart=/opt/mehrchat/venv/bin/python -m mehrchat.server --data /var/lib/mehrchat --port 8787
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/mehrchat
+UMask=0077
+LimitNOFILE=1024
+[Install]
+WantedBy=multi-user.target
