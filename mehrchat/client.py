@@ -25,8 +25,8 @@ from .wire import connect
 
 
 def safe_filename(name):
-    reserved = {"CON", "PRN", "AUX", "NUL"} | {
-        prefix + str(number) for prefix in ("COM", "LPT") for number in range(1, 10)
+    reserved = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$"} | {
+        prefix + number for prefix in ("COM", "LPT") for number in "123456789¹²³"
     }
     if (
         not isinstance(name, str)

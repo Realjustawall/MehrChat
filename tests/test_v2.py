@@ -133,6 +133,8 @@ class RatchetTests(unittest.TestCase):
             "folder/file.txt",
             "file:stream",
             "NUL.txt",
+            "COM¹.txt",
+            "CONIN$",
             "a\x00.txt",
             "a\u202eexe.txt",
             "..",
