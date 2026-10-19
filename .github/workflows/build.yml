@@ -54,6 +54,14 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: python scripts/native_gui_smoke.py > reports/compiled-gui-test.txt 2>&1
+      - name: Verify desktop installation and identity retention
+        shell: bash
+        run: |
+          if [ '${{ runner.os }}' = 'Linux' ]; then
+            xvfb-run -a python scripts/verify_client_install.py > reports/client-install-test.txt 2>&1
+          else
+            python scripts/verify_client_install.py > reports/client-install-test.txt 2>&1
+          fi
       - name: Verify Ubuntu offline service installation
         if: runner.os == 'Linux'
         shell: bash

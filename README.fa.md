@@ -16,7 +16,7 @@
 
 ## کلاینت
 
-کل پوشه `dist/MehrChat` را نگه دارید. ویندوز: `MehrChat.exe`؛ نصب اختیاری با `deploy/install-windows-client.ps1`. لینوکس: `dist/MehrChat/MehrChat` یا `bash deploy/install-linux-client.sh`. لینک‌ها و کتابخانه‌های همراه را حذف نکنید.
+کل پوشه `dist/MehrChat` را نگه دارید. ویندوز: `MehrChat.exe`؛ نصب اختیاری با `deploy/install-windows-client.ps1`. لینوکس: `dist/MehrChat/MehrChat` یا `bash deploy/install-linux-client.sh`. لینک‌ها و کتابخانه‌های همراه را حذف نکنید. حذف کلاینت با `deploy/uninstall-windows-client.ps1` یا `bash deploy/uninstall-linux-client.sh` انجام می‌شود و فایل هویت باقی می‌ماند.
 
 ۱. نام کاربری انگلیسی، نام نمایشی و رمز حداقل ۱۲ نویسه بسازید.
 ۲. از منو، «سرورها»، IP و پورت و pin را وارد کنید؛ تا ۵ رله هم‌زمان. ذخیره، اتصال‌ها را دوباره برقرار می‌کند.
