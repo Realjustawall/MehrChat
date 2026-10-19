@@ -1,8 +1,11 @@
 import os
 import tempfile
+import sys
 from pathlib import Path
 
 os.environ.setdefault("KIVY_NO_ARGS", "1")
+if sys.platform == "win32":
+    os.environ.setdefault("KIVY_GL_BACKEND", "angle_sdl2")
 from mehrchat.ui import MehrApp
 
 if __name__ == "__main__":

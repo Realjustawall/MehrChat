@@ -6,6 +6,8 @@ import json, time
 from pathlib import Path
 from kivy.clock import Clock
 from .crypto import create_identity, public_card
+from . import ratchet
+from nacl.utils import random
 
 PASSWORD = "CI-only temporary test password"
 TEXT = "سلام، آزمون پیام فارسی"
@@ -27,6 +29,17 @@ def install(app, result_path):
         if app.engine is None:
             return True
         peer = public_card(create_identity("ci_peer", "مخاطب"))
+        # Exercise compiled crypto extensions and serialized Double Ratchet state.
+        recipient = ratchet.private_key()
+        secret, ad = random(32), b"MehrChat compiled GUI CI"
+        alice, packet = ratchet.initial_send(
+            secret, ratchet.public_key(recipient), b"hello", ad
+        )
+        bob, plaintext = ratchet.initial_receive(secret, recipient, packet, ad)
+        assert plaintext == b"hello"
+        bob, reply = ratchet.encrypt(bob, b"reply", ad)
+        alice, plaintext = ratchet.decrypt(alice, reply, ad)
+        assert plaintext == b"reply"
         app.engine.add_contact(json.dumps(peer), peer["body"]["id"])
         chat = app.engine.dm_id(peer["body"]["id"])
         app.select(chat)
@@ -73,6 +86,7 @@ def install(app, result_path):
                     json.dumps(
                         {
                             "account_creation": True,
+                            "compiled_double_ratchet": True,
                             "persian_chat": True,
                             "group": True,
                             "dialogs": True,

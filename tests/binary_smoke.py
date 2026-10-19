@@ -101,7 +101,18 @@ async def run():
             for t in tasks:
                 t.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
-            process.terminate()
+            if process.poll() is None:
+                if os.name == "nt":
+                    # One-file PyInstaller uses a parent bootloader and a child.
+                    # Terminating only the parent leaves SQLite open on Windows.
+                    subprocess.run(
+                        ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                    )
+                else:
+                    process.terminate()
             process.wait(timeout=10)
 
 
