@@ -38,6 +38,7 @@ if __name__ == "__main__":
     ):
         import traceback
 
+        previous_streams = sys.stdout, sys.stderr
         with open(
             os.environ["MEHRCHAT_SMOKE_LOG"], "w", encoding="utf-8", buffering=1
         ) as log:
@@ -48,5 +49,7 @@ if __name__ == "__main__":
                 traceback.print_exc(file=log)
                 log.flush()
                 os._exit(1)
+            finally:
+                sys.stdout, sys.stderr = previous_streams
     else:
         run()

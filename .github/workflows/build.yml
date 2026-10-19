@@ -140,6 +140,21 @@ jobs:
             .buildozer/android/platform
           key: android-${{ matrix.arch }}-${{ hashFiles('buildozer.spec','requirements.txt','p4a-recipes/**') }}
           restore-keys: android-${{ matrix.arch }}-
+      - name: Invalidate incompatible cached distribution
+        if: steps.android-cache.outputs.cache-hit != 'true'
+        env:
+          MEHRCHAT_BUILD_ARCH: ${{ matrix.arch }}
+        run: |
+          python - <<'PYTHON'
+          import os, shutil
+          from pathlib import Path
+          arch = os.environ['MEHRCHAT_BUILD_ARCH']
+          assert arch in ('arm64-v8a', 'x86_64')
+          target = Path('.buildozer/android/platform') / ('build-' + arch) / 'dists/mehrchat'
+          if target.exists():
+              shutil.rmtree(target)
+          print('Native distribution will be reassembled using current recipe checks.')
+          PYTHON
       - name: Build installable test APK
         env:
           RUSTUP_HOME: /home/runner/.rustup

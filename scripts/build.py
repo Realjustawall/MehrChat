@@ -33,6 +33,22 @@ args = [
     "--exclude-module",
     "pyximport",
 ]
+if kind == "client" and sys.platform == "win32":
+    from kivy_deps import angle, glew, sdl2
+
+    libraries = {}
+    for dependency in (angle, glew, sdl2):
+        for directory in dependency.dep_bins:
+            for library in Path(directory).glob("*.dll"):
+                libraries.setdefault(library.name.lower(), library)
+    if not {"libegl.dll", "libglesv2.dll"} <= set(libraries):
+        raise RuntimeError("ANGLE runtime DLLs were not installed")
+    for library in libraries.values():
+        args += ["--add-binary", str(library) + os.pathsep + "."]
+    for module in ("kivy_deps.angle", "kivy_deps.glew", "kivy_deps.sdl2"):
+        args += ["--hidden-import", module]
+    print("Bundled Windows graphics libraries:", len(libraries), flush=True)
+
 if sys.platform.startswith("linux"):
     args += ["--strip"]
 if kind == "server":
