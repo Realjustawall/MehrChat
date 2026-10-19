@@ -89,27 +89,28 @@ def install(app, result_path):
                 assert app.engine.me == identity and any(
                     m.get("text") == TEXT for m in app.engine.d["messages"][chat]
                 )
-                Path(result_path).write_text(
-                    json.dumps(
-                        {
-                            "account_creation": True,
-                            "compiled_double_ratchet": True,
-                            "persian_chat": True,
-                            "group": True,
-                            "dialogs": True,
-                            "vault_encrypted": True,
-                            "lock_unlock": True,
-                            "identity_preserved": True,
-                            **(
-                                {"tcp_noise_e2ee_request_reply": True}
-                                if network
-                                else {}
-                            ),
-                        }
+
+                def finish(*_):
+                    screenshot = os.environ.get("MEHRCHAT_SMOKE_SCREENSHOT")
+                    if screenshot:
+                        app.root.export_to_png(screenshot)
+                    result = dict(
+                        account_creation=True,
+                        compiled_double_ratchet=True,
+                        persian_chat=True,
+                        group=True,
+                        dialogs=True,
+                        vault_encrypted=True,
+                        lock_unlock=True,
+                        identity_preserved=True,
                     )
-                )
-                print("NATIVE_GUI_FLOW_PASS", flush=True)
-                app.stop()
+                    if network:
+                        result["tcp_noise_e2ee_request_reply"] = True
+                    Path(result_path).write_text(json.dumps(result))
+                    print("NATIVE_GUI_FLOW_PASS", flush=True)
+                    app.stop()
+
+                Clock.schedule_once(finish, 0.3)
                 return False
 
             Clock.schedule_interval(restored, 0.1)

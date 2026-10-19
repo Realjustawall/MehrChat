@@ -180,10 +180,23 @@ class MehrApp(App):
             on_touch_down=lambda *_: self.activity(),
             on_key_down=lambda *_: self.activity(),
         )
+        Window.bind(on_resize=self.resize_layout)
         self.vault_path = self.data_path()
         self.unlock_screen()
         Clock.schedule_interval(lambda *_: self.tick(), 5)
         return self.rootbox
+
+    def resize_layout(self, *_):
+        if (
+            self.engine
+            and hasattr(self, "mobile")
+            and self.mobile != (Window.width < dp(720))
+        ):
+            draft, chat = self.compose.text, self.chat
+            self.shell()
+            self.compose.text = draft
+            if chat:
+                self.select(chat)
 
     def data_path(self):
         if platform == "android":
@@ -279,7 +292,7 @@ class MehrApp(App):
 
     def shell(self):
         self.rootbox.clear_widgets()
-        self.mobile = Window.width < 720
+        self.mobile = Window.width < dp(720)
         self.view_limit = 100
         self._view_signature = None
         body = BoxLayout(spacing=dp(1))
