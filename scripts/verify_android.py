@@ -1,6 +1,6 @@
 """Inspect the actual APK, including nested Python native libraries and pinned metadata."""
 
-import argparse, email, io, json, struct, subprocess, tarfile, zipfile
+import argparse, email, io, json, struct, subprocess, tarfile, tempfile, zipfile
 from pathlib import Path
 
 p = argparse.ArgumentParser()
@@ -15,6 +15,7 @@ report = {
     "arch": args.arch,
     "elf_count": 0,
     "versions": {},
+    "python_linked_extensions": [],
     "debuggable": not args.release,
 }
 
@@ -36,6 +37,18 @@ def elf(name, raw):
                 name,
                 "ELF not aligned for 16 KiB pages",
             )
+    if "cryptography/hazmat/bindings/_rust" in name or "/_pydantic_core." in name:
+        with tempfile.NamedTemporaryFile(suffix=".so") as library:
+            library.write(raw)
+            library.flush()
+            dynamic = subprocess.check_output(
+                ["readelf", "-d", library.name], text=True
+            )
+        assert "Shared library: [libpython3.13.so]" in dynamic, (
+            name,
+            "missing Android Python runtime link",
+        )
+        report["python_linked_extensions"].append(name)
     report["elf_count"] += 1
 
 
@@ -82,6 +95,9 @@ with zipfile.ZipFile(args.apk) as z:
                         report["versions"][key] = m["Version"]
         else:
             elf(name, raw)
+assert (
+    len(report["python_linked_extensions"]) >= 2
+), "Rust crypto/model extensions not inspected"
 for name, version in {
     "pynacl": "1.6.2",
     "cryptography": "50.0.2",
