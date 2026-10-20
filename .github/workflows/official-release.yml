@@ -1,0 +1,96 @@
+name: Publish verified official release
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: official-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: contains(github.event.head_commit.message, 'Signed-APK-Blob:')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require a successful exact-tree build before publication
+        id: verified
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const commit = (await github.rest.repos.getCommit({...context.repo, ref:context.sha})).data;
+            if (commit.parents.length !== 2) throw new Error('Release must use a verified two-parent PR merge');
+            const source = commit.parents[1].sha;
+            const tested = (await github.rest.repos.getCommit({...context.repo, ref:source})).data;
+            if (tested.commit.tree.sha !== commit.commit.tree.sha) throw new Error('Merged tree differs from tested source');
+            const runs = (await github.rest.actions.listWorkflowRunsForRepo({...context.repo, head_sha:source, event:'pull_request', status:'success', per_page:100})).data.workflow_runs;
+            const run = runs.find(r=>r.path === '.github/workflows/build.yml' && r.conclusion === 'success');
+            if (!run) throw new Error('No passing native/Android build exists for the exact source');
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {...context.repo, run_id:run.id, per_page:100});
+            for (const name of ['native (ubuntu-24.04)','native (windows-2022)','android (arm64-v8a)','android (x86_64)']) {
+              if (!jobs.some(j=>j.name === name && j.conclusion === 'success')) throw new Error('Missing successful job: '+name);
+            }
+            const message = commit.commit.message;
+            for (const [label,key,len] of [['Signed-APK-Blob','blob',40],['Signed-APK-SHA256','signed',64],['Unsigned-APK-SHA256','unsigned',64],['Android-Cert-SHA256','certificate',64]]) {
+              const match = message.match(new RegExp('^'+label+': ([a-f0-9]{'+len+'})$', 'm'));
+              if (!match) throw new Error('Missing validated signing metadata: '+label);
+              core.setOutput(key,match[1]);
+            }
+            const fs = require('fs');
+            const version = fs.readFileSync('mehrchat/__init__.py','utf8').match(/__version__ = "(\d+\.\d+\.\d+)"/)[1];
+            core.setOutput('version',version);
+            core.setOutput('run',String(run.id));
+            core.setOutput('source',source);
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ steps.verified.outputs.run }}
+          github-token: ${{ github.token }}
+          path: verified-artifacts
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Retrieve externally signed APK (public binary only)
+        uses: actions/github-script@v7
+        env:
+          SIGNED_BLOB: ${{ steps.verified.outputs.blob }}
+        with:
+          script: |
+            const fs = require('fs');
+            const blob = (await github.rest.git.getBlob({...context.repo, file_sha:process.env.SIGNED_BLOB})).data;
+            if (blob.encoding !== 'base64') throw new Error('Unexpected blob encoding');
+            fs.writeFileSync('signed-release.apk',Buffer.from(blob.content,'base64'));
+      - name: Verify signature, tested payload and package release assets
+        env:
+          RELEASE_VERSION: ${{ steps.verified.outputs.version }}
+          SIGNED_APK_SHA256: ${{ steps.verified.outputs.signed }}
+          UNSIGNED_APK_SHA256: ${{ steps.verified.outputs.unsigned }}
+          ANDROID_CERT_SHA256: ${{ steps.verified.outputs.certificate }}
+        run: python scripts/prepare_official_release.py
+      - name: Publish complete official release
+        uses: actions/github-script@v7
+        env:
+          RELEASE_VERSION: ${{ steps.verified.outputs.version }}
+          TESTED_SOURCE: ${{ steps.verified.outputs.source }}
+          TESTED_RUN: ${{ steps.verified.outputs.run }}
+          ANDROID_CERT_SHA256: ${{ steps.verified.outputs.certificate }}
+        with:
+          script: |
+            const fs = require('fs');
+            const version = process.env.RELEASE_VERSION;
+            const tag = 'v'+version;
+            const body = `Secure Ubuntu installation with verified TLS/private-CA fallback, authenticated pre-login connection setup, dedicated Windows/Android builds and refreshed Persian desktop/mobile UI.\n\nInstallation and setup: see README.md in the source archive or repository.\n\nSource: ${context.sha}\nTested source (identical tree): ${process.env.TESTED_SOURCE}\nNative/Android validation: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${process.env.TESTED_RUN}\n\nAndroid release is non-debuggable and signed with the existing owner key. Certificate SHA-256: ${process.env.ANDROID_CERT_SHA256}\nWindows executables are not Authenticode-signed.\n\nAssets include Windows/Linux clients and relays, the signed Android arm64 APK, Ubuntu server source/installer, actual Windows/Android UI screenshots, test reports, English installation guide and SHA-256 checksums. No independent security audit is claimed.`;
+            const release = await github.rest.repos.createRelease({...context.repo,tag_name:tag,target_commitish:context.sha,name:'MehrChat '+version,body,draft:true,prerelease:false});
+            for (const name of fs.readdirSync('release-assets').sort()) {
+              const data = fs.readFileSync('release-assets/'+name);
+              await github.rest.repos.uploadReleaseAsset({...context.repo,release_id:release.data.id,name,data,headers:{'content-type':'application/octet-stream'}});
+            }
+            const published = await github.rest.repos.updateRelease({...context.repo,release_id:release.data.id,draft:false,prerelease:false,make_latest:'true'});
+            await core.summary.addLink('Official release',published.data.html_url).write();

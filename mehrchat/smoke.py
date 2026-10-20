@@ -20,7 +20,14 @@ TEXT = "سلام، آزمون پیام فارسی"
 
 def install(app, result_path):
     app.test_mode = True
-    deadline = time.monotonic() + 35
+    deadline = time.monotonic() + 65
+    gallery = os.environ.get("MEHRCHAT_SMOKE_GALLERY")
+    gallery = Path(gallery) if gallery else None
+    if gallery:
+        gallery.mkdir(parents=True, exist_ok=True)
+    def capture(name):
+        if gallery:
+            app.root.export_to_png(str(gallery / (name + ".png")))
     config_path = os.environ.get("MEHRCHAT_SMOKE_NETWORK_CONFIG")
     network = json.loads(Path(config_path).read_text()) if config_path else None
 
@@ -114,21 +121,29 @@ def install(app, result_path):
         app.select(group)
         assert app.compose.text == group_draft
         steps = [
-            app.settings,
-            app.profile_dialog,
-            app.password_dialog,
-            app.my_card,
-            app.contact_dialog,
-            lambda: app.group_dialog(group),
-            app.chat_info,
+            ("03-private-chat", lambda: app.select(chat)),
+            ("04-group-chat", lambda: app.select(group)),
+            ("05-chat-list", app.show_chat_list if app.mobile else lambda: None),
+            ("06-connection-settings", app.settings),
+            ("07-profile", app.profile_dialog),
+            ("08-password", app.password_dialog),
+            ("09-identity-card", app.my_card),
+            ("10-add-contact", app.contact_dialog),
+            ("11-edit-group", lambda: app.group_dialog(group)),
+            ("12-chat-info", app.chat_info),
         ]
+        pending_capture = None
 
         def next_step(*_):
+            nonlocal pending_capture
+            if pending_capture:
+                capture(pending_capture)
             for popup in list(app.open_popups):
                 popup.dismiss()
             if steps:
-                steps.pop(0)()
-                Clock.schedule_once(next_step, 0.15)
+                pending_capture, action = steps.pop(0)
+                action()
+                Clock.schedule_once(next_step, 0.35 if gallery else 0.15)
                 return
             raw = app.vault_path.read_bytes()
             assert TEXT.encode() not in raw and PASSWORD.encode() not in raw
@@ -246,4 +261,17 @@ def install(app, result_path):
             Clock.schedule_once(next_step, 0.2)
         return False
 
-    Clock.schedule_once(login, 0.3)
+    def gallery_start(*_):
+        if not gallery:
+            login()
+            return
+        app.connection_screen()
+        def connection_shown(*_):
+            capture("01-connect")
+            app.unlock_screen()
+            def login_shown(*_):
+                capture("02-login")
+                login()
+            Clock.schedule_once(login_shown, .35)
+        Clock.schedule_once(connection_shown, .35)
+    Clock.schedule_once(gallery_start, 0.3)

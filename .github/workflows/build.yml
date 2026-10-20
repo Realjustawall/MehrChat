@@ -148,6 +148,9 @@ jobs:
           sed -i 's/android.archs = .*/android.archs = ${{ matrix.arch }}/' buildozer.spec
           printf '\n' >> buildozer.spec
           echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+      - name: Compute Android native dependency identity
+        id: android-deps
+        run: python scripts/android_cache_key.py >> "$GITHUB_OUTPUT"
       - uses: actions/cache/restore@v4
         id: android-cache
         with:
@@ -156,7 +159,7 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
             .buildozer/android/platform
-          key: android-${{ matrix.arch }}-${{ hashFiles('buildozer.spec','requirements.txt','p4a-recipes/**') }}
+          key: android-${{ matrix.arch }}-${{ steps.android-deps.outputs.key }}
           restore-keys: android-${{ matrix.arch }}-
       - name: Invalidate incompatible cached distribution
         if: steps.android-cache.outputs.cache-hit != 'true'
@@ -251,11 +254,11 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const tag = `v0.2.1-rc1-ci.${context.runNumber}`;
+            const tag = `v0.5.0-rc1-ci.${context.runNumber}`;
             const commit = context.payload.pull_request?.head.sha || context.sha;
             const release = await github.rest.repos.createRelease({
               ...context.repo, tag_name: tag, target_commitish: commit,
-              name: `MehrChat 0.2.1-rc1 — CI ${context.runNumber}`,
+              name: `MehrChat 0.5.0-rc1 — CI ${context.runNumber}`,
               draft: true, prerelease: true,
               body: `Native Windows/Linux and Android candidate.\n\nSource: ${commit}\nValidation: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\nRelease APKs are unsigned and require the owner's signing key. Debug APKs are for testing. This candidate has not received an independent security audit.`
             });

@@ -167,6 +167,9 @@ jobs:
           sed -i 's/android.archs = .*/android.archs = ${{ matrix.arch }}/' buildozer.spec
           printf '\n' >> buildozer.spec
           echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+      - name: Compute Android native dependency identity
+        id: android-deps
+        run: python scripts/android_cache_key.py >> "$GITHUB_OUTPUT"
       - uses: actions/cache/restore@v4
         id: android-cache
         with:
@@ -175,7 +178,7 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
             .buildozer/android/platform
-          key: android-${{ matrix.arch }}-${{ hashFiles('buildozer.spec','requirements.txt','p4a-recipes/**') }}
+          key: android-${{ matrix.arch }}-${{ steps.android-deps.outputs.key }}
           restore-keys: android-${{ matrix.arch }}-
       - name: Invalidate incompatible cached distribution
         if: steps.android-cache.outputs.cache-hit != 'true'
