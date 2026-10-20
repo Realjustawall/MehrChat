@@ -31,6 +31,17 @@ def install(app, result_path):
         if app.engine is None:
             return True
         assert app.open_popups, "New accounts must be shown the external backup reminder"
+        from .ui import platform
+        if platform == "android":
+            assert app.open_popups[-1].auto_dismiss is False
+        setup_backup = io.BytesIO()
+        picker = app.choose_document
+        reminder = app.open_popups[-1]
+        app.choose_document = lambda mode, name, callback: callback(setup_backup)
+        app.backup_dialog(on_saved=reminder.dismiss)
+        app.choose_document = picker
+        assert setup_backup.getvalue().startswith(b"MEHRVAULT1\0")
+        assert app.engine.d["backup_last_at"] > 0 and reminder not in app.open_popups
         peer = (
             network["card"]
             if network

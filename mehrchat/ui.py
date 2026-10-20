@@ -303,8 +303,14 @@ class MehrApp(App):
         notice.bind(size=lambda w, value: setattr(w, "text_size", value))
         box.add_widget(notice)
         pop = self.dialog("پشتیبان حساب", box)
-        box.add_widget(button("ذخیره پشتیبان", lambda: (pop.dismiss(), self.backup_dialog())))
-        box.add_widget(button("بعداً", pop.dismiss))
+        box.add_widget(button("ذخیره پشتیبان", lambda: self.backup_dialog(on_saved=pop.dismiss)))
+        if platform == "android":
+            # Android deletes private app data on uninstall. Setup must not
+            # silently continue after cancelling the external backup picker.
+            pop.auto_dismiss = False
+            box.add_widget(button("قفل حساب", self.lock_account))
+        else:
+            box.add_widget(button("بعداً", pop.dismiss))
 
     def shell(self):
         self.rootbox.clear_widgets()
@@ -1026,7 +1032,7 @@ class MehrApp(App):
 
         self.choose_document("open", "file", load)
 
-    def backup_dialog(self):
+    def backup_dialog(self, on_saved=None):
         engine = self.engine
 
         def save(f):
@@ -1038,6 +1044,8 @@ class MehrApp(App):
                 f.flush()
                 with engine.transaction():
                     engine.d["backup_last_at"] = int(time.time())
+            if on_saved:
+                on_saved()
 
         self.choose_document("save", "mehr-backup.mcv", save)
 
