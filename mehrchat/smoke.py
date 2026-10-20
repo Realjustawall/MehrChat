@@ -19,6 +19,7 @@ TEXT = "سلام، آزمون پیام فارسی"
 
 
 def install(app, result_path):
+    app.test_mode = True
     deadline = time.monotonic() + 35
     config_path = os.environ.get("MEHRCHAT_SMOKE_NETWORK_CONFIG")
     network = json.loads(Path(config_path).read_text()) if config_path else None
@@ -190,7 +191,18 @@ def install(app, result_path):
                         pixels = CoreImage(screenshot).texture.pixels
                         colors = {pixels[i:i + 3] for i in range(0, len(pixels), 4 * 37)}
                         assert len(colors) > 32, "The captured UI must not be blank"
+                    # A hidden fixed-width sidebar must not push the mobile chat off-screen.
+                    app.mobile = True
+                    body = app.sidebar.parent
+                    app.show_chat_list()
+                    body.do_layout()
+                    assert app.mainpane.width == 0
+                    app.select(chat)
+                    body.do_layout()
+                    assert app.sidebar.width == 0
+                    assert app.mainpane.right <= app.root.width + 1
                     result = dict(
+                        responsive_navigation=True,
                         account_creation=True,
                         compiled_double_ratchet=True,
                         persian_chat=True,

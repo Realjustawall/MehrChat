@@ -1,4 +1,5 @@
 import json
+import asyncio
 import os
 from pathlib import Path
 import tempfile
@@ -15,6 +16,7 @@ if platform != "android":
     Config.set("graphics", "width", "1100")
     Config.set("graphics", "height", "760")
 from kivy.app import App
+from kivy.animation import Animation
 from kivy.clock import Clock
 from kivy.core.window import Window
 from kivy.graphics import Color, RoundedRectangle
@@ -26,17 +28,21 @@ from kivy.uix.checkbox import CheckBox
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
+from kivy.uix.anchorlayout import AnchorLayout
+from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
 from kivy.utils import platform
 from .vault import Vault, MAX_BACKUP_BYTES
 from .client import Engine, safe_filename
 from .crypto import public_card, check_card
+from .connection import bundled_profile, validate_profile, probe
+from . import __version__
 
 ROOT = Path(__file__).resolve().parent.parent
 FONT = str(ROOT / "assets" / "Vazirmatn-Regular.ttf")
-BG = (0.055, 0.09, 0.13, 1)
-PANEL = (0.09, 0.13, 0.18, 1)
-BLUE = (0.18, 0.56, 0.79, 1)
+BG = (0.055, 0.085, 0.12, 1)
+PANEL = (0.09, 0.13, 0.175, 1)
+BLUE = (0.28, 0.64, 0.87, 1)
 TEXT = (0.88, 0.93, 0.96, 1)
 
 
@@ -57,7 +63,29 @@ class Surface(BoxLayout):
 
 
 class ChatRow(ButtonBehavior, Surface):
-    pass
+    def on_press(self):
+        Animation(opacity=0.72, duration=0.08).start(self)
+
+    def on_release(self):
+        Animation(opacity=1, duration=0.12).start(self)
+
+
+class ModernButton(Button):
+    def __init__(self, **kw):
+        color = kw.pop("background_color", BLUE)
+        super().__init__(background_color=(0, 0, 0, 0), background_normal="", background_down="", **kw)
+        with self.canvas.before:
+            self.fill = Color(*color)
+            self.shape = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(14)])
+            Color(1, 1, 1, 1)
+        self.bind(pos=self.redraw, size=self.redraw, state=self.redraw, disabled=self.redraw)
+        self.base_color = color
+
+    def redraw(self, *_):
+        self.shape.pos, self.shape.size = self.pos, self.size
+        factor = 0.75 if self.state == "down" or self.disabled else 1
+        self.fill.rgba = tuple(c * factor for c in self.base_color[:3]) + (self.base_color[3],)
+
 
 
 class Avatar(Surface):
@@ -101,11 +129,10 @@ def wrapped_label(text, **kw):
 
 def button(text, callback, **kw):
     color = kw.pop("background_color", BLUE)
-    b = Button(
+    b = ModernButton(
         text=fa(text),
         font_name=FONT,
         font_size=dp(15),
-        background_normal="",
         background_color=color,
         size_hint_y=None,
         height=dp(44),
@@ -116,6 +143,19 @@ def button(text, callback, **kw):
 
 
 class PersianInput(TextInput):
+    def __init__(self, **kw):
+        kw.update(background_normal="", background_active="", background_color=(0, 0, 0, 0))
+        super().__init__(**kw)
+        with self.canvas.before:
+            self.fill = Color(0.13, 0.18, 0.235, 1)
+            self.shape = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(14)])
+            Color(1, 1, 1, 1)
+        self.bind(pos=self.redraw, size=self.redraw, focus=self.redraw)
+
+    def redraw(self, *_):
+        self.shape.pos, self.shape.size = self.pos, self.size
+        self.fill.rgba = (0.16, 0.23, 0.30, 1) if self.focus else (0.13, 0.18, 0.235, 1)
+
     def _get_line_options(self):
         options = getattr(self, "_line_options", None)
         if options and (
@@ -176,7 +216,8 @@ def field(hint="", password=False, multiline=False):
         background_color=(0.12, 0.18, 0.23, 1),
         foreground_color=TEXT,
         cursor_color=BLUE,
-        padding=[dp(12), dp(12)],
+        padding=[dp(12), dp(8)],
+        hint_text_color=(0.54, 0.65, 0.74, 1),
         size_hint_y=None,
         height=dp(48) if not multiline else dp(120),
     )
@@ -198,7 +239,12 @@ class MehrApp(App):
         )
         Window.bind(on_resize=self.resize_layout)
         self.vault_path = self.data_path()
-        self.unlock_screen()
+        self.deployment = None if getattr(self, "test_mode", False) else bundled_profile()
+        self.connection_profile = self.deployment
+        if getattr(self, "test_mode", False):
+            self.unlock_screen()
+        else:
+            self.connection_screen()
         Clock.schedule_interval(lambda *_: self.tick(), 5)
         return self.rootbox
 
@@ -249,16 +295,113 @@ class MehrApp(App):
                 else "عملیات انجام نشد؛ اطلاعات را بررسی کنید"
             )
 
+    def setup_panel(self, title, subtitle):
+        self.rootbox.clear_widgets()
+        scroll = ScrollView(do_scroll_x=False)
+        anchor = AnchorLayout(anchor_x="center", anchor_y="center", size_hint_y=None)
+        panel = Surface(orientation="vertical", size_hint=(None, None),
+                        padding=dp(24), spacing=dp(12))
+        panel.bind(minimum_height=panel.setter("height"))
+        def fit(*_):
+            panel.width = max(dp(240), min(dp(460), scroll.width - dp(32)))
+            anchor.height = max(scroll.height, panel.height + dp(40))
+        scroll.bind(size=fit)
+        panel.bind(height=fit)
+        anchor.add_widget(panel)
+        scroll.add_widget(anchor)
+        self.rootbox.add_widget(scroll)
+        panel.add_widget(label("مهر", font_size=dp(38), size_hint_y=None, height=dp(64)))
+        panel.add_widget(label(title, font_size=dp(22), size_hint_y=None, height=dp(38)))
+        note = wrapped_label(subtitle, font_size=dp(13), size_hint_y=None, height=dp(60))
+        note.color = (0.60, 0.70, 0.78, 1)
+        panel.add_widget(note)
+        Clock.schedule_once(fit)
+        return panel
+
+    def connection_screen(self):
+        self.connection_verified = False
+        panel = self.setup_panel("اتصال امن", "ابتدا سرور را تأیید کنید، سپس وارد حساب شوید")
+        current = self.connection_profile
+        if not current and self.vault_path.with_suffix(".connection.json").exists():
+            try:
+                current = validate_profile(json.loads(self.vault_path.with_suffix(".connection.json").read_text()))
+            except (OSError, ValueError, KeyError):
+                current = None
+        current = current or dict(host="127.0.0.1", port=8787, pin="", transport="tls", ca="")
+        inputs = {}
+        if self.deployment:
+            panel.add_widget(label("نسخه " + __version__, size_hint_y=None, height=dp(30)))
+            panel.add_widget(label("TLS + Noise NK · SSL فعال", size_hint_y=None, height=dp(36)))
+        else:
+            for name, hint in (("host", "آدرس سرور"), ("port", "پورت"), ("pin", "کلید عمومی سرور")):
+                widget = field(hint)
+                widget.text = str(current[name])
+                panel.add_widget(widget)
+                inputs[name] = widget
+            transport = Spinner(text="TLS + Noise" if current['transport'] == 'tls' else 'Noise',
+                                values=("TLS + Noise", "Noise"), font_name=FONT,
+                                size_hint_y=None, height=dp(48), background_normal="", background_color=PANEL)
+            panel.add_widget(transport)
+            ca = field("گواهی CA اختصاصی (PEM)، برای گواهی عمومی خالی", multiline=True)
+            ca.text = current.get("ca", "")
+            # Paste a public profile exported by the Ubuntu installer.
+            imported = field("پروفایل اتصال JSON", multiline=True)
+            advanced = BoxLayout(orientation="vertical", size_hint_y=None, height=dp(296), spacing=dp(12))
+            advanced.add_widget(ca)
+            advanced.add_widget(imported)
+            def import_profile():
+                def apply():
+                    self.connection_profile = validate_profile(json.loads(imported.text))
+                    self.connection_screen()
+                self.guarded(apply)
+            advanced.add_widget(button("واردکردن پروفایل", import_profile))
+            def toggle_advanced():
+                if advanced.parent:
+                    panel.remove_widget(advanced)
+                else:
+                    panel.add_widget(advanced, index=2)
+            panel.add_widget(button("پروفایل و گواهی اختصاصی", toggle_advanced, background_color=PANEL))
+        status = wrapped_label("آماده بررسی اتصال", size_hint_y=None, height=dp(48), font_size=dp(13))
+        panel.add_widget(status)
+        def check():
+            try:
+                profile = self.deployment or validate_profile(dict(
+                    host=inputs['host'].text, port=inputs['port'].text, pin=inputs['pin'].text.strip(),
+                    transport='tls' if transport.text == 'TLS + Noise' else 'noise', ca=ca.text.strip()))
+            except Exception:
+                status.text = fa("آدرس، پورت، کلید و گواهی را بررسی کنید")
+                return
+            connect_button.disabled = True
+            status.text = fa("در حال بررسی اتصال امن…")
+            def work():
+                try:
+                    asyncio.run(probe(profile))
+                except Exception:
+                    def failed(*_):
+                        connect_button.disabled = False
+                        status.text = fa("اتصال تأیید نشد؛ شبکه، کلید و گواهی را بررسی کنید")
+                    Clock.schedule_once(failed)
+                    return
+                def done(*_):
+                    self.connection_profile = profile
+                    self.connection_verified = True
+                    if not self.deployment:
+                        path = self.vault_path.with_suffix('.connection.json')
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        temp = path.with_suffix('.tmp')
+                        temp.write_text(json.dumps(profile))
+                        temp.replace(path)
+                    self.unlock_screen()
+                Clock.schedule_once(done)
+            threading.Thread(target=work, daemon=True).start()
+        connect_button = button("بررسی اتصال و ادامه", check)
+        panel.add_widget(connect_button)
+        if self.deployment:
+            Clock.schedule_once(lambda *_: check(), .1)
+
     def unlock_screen(self):
         self.rootbox.clear_widgets()
-        wrap = BoxLayout(
-            orientation="vertical",
-            padding=[dp(30), dp(30)],
-            spacing=dp(14),
-            size_hint=(1, None),
-            height=dp(500),
-        )
-        wrap.add_widget(label("مهر", font_size=dp(38), size_hint_y=None, height=dp(70)))
+        wrap = self.setup_panel("خوش آمدید", "کلیدها و پیام‌های شما در این دستگاه رمزگذاری و نگهداری می‌شوند")
         self.username = field("نام کاربری")
         self.displayname = field("نام نمایشی")
         if not self.vault_path.exists():
@@ -271,9 +414,13 @@ class MehrApp(App):
         )
         wrap.add_widget(self.loginbutton)
         wrap.add_widget(button("بازیابی پشتیبان", self.restore_dialog))
-        self.rootbox.add_widget(wrap)
+        if not getattr(self, "test_mode", False):
+            wrap.add_widget(button("تنظیم اتصال", self.connection_screen, background_color=PANEL))
 
     def unlock(self):
+        if not getattr(self, "test_mode", False) and not getattr(self, "connection_verified", False):
+            self.connection_screen()
+            return
         pw = self.password.text
         user = self.username.text.strip()
         name = self.displayname.text.strip()
@@ -302,6 +449,8 @@ class MehrApp(App):
         vault.acquire_lock()
         self.last_activity = time.monotonic()
         self.engine = Engine(vault)
+        if self.connection_profile:
+            self.engine.configure_relays([self.connection_profile])
         self.engine.changed = lambda: Clock.schedule_once(lambda *_: self.refresh())
         self.engine.start()
         self.shell()
@@ -337,7 +486,7 @@ class MehrApp(App):
         self.sidebar = Surface(
             orientation="vertical",
             size_hint_x=None,
-            width=dp(320),
+            width=dp(348),
             padding=dp(10),
             spacing=dp(4),
         )
@@ -351,12 +500,15 @@ class MehrApp(App):
                 background_color=PANEL,
             )
         )
-        toolbar.add_widget(label("گفتگوها"))
+        toolbar.add_widget(label("مهر", font_size=dp(23)))
         toolbar.add_widget(button("+", self.new_menu, size_hint_x=None, width=dp(44)))
         self.sidebar.add_widget(toolbar)
         self.search = field("جستجو")
         self.search.bind(text=lambda *_: self.refresh())
         self.sidebar.add_widget(self.search)
+        caption = label("گفتگوهای شما", font_size=dp(12), size_hint_y=None, height=dp(30))
+        caption.color = (0.48, 0.64, 0.76, 1)
+        self.sidebar.add_widget(caption)
         scroll = ScrollView()
         self.chatlist = BoxLayout(
             orientation="vertical", size_hint_y=None, spacing=dp(2)
@@ -431,6 +583,7 @@ class MehrApp(App):
         )
         composer.add_widget(self.compose)
         composer.add_widget(button("ارسال", self.send, size_hint_x=None, width=dp(70)))
+        self.composer = composer
         self.mainpane.add_widget(composer)
         body.add_widget(self.mainpane)
         self.rootbox.add_widget(body)
@@ -443,7 +596,8 @@ class MehrApp(App):
         self.sidebar.width = Window.width
         self.sidebar.opacity = 1
         self.sidebar.disabled = False
-        self.mainpane.size_hint_x = 0
+        self.mainpane.size_hint_x = None
+        self.mainpane.width = 0
         self.mainpane.opacity = 0
         self.mainpane.disabled = True
 
@@ -514,7 +668,7 @@ class MehrApp(App):
                 height=dp(76),
                 padding=dp(10),
                 spacing=dp(10),
-                color=(0.16, 0.32, 0.43, 1) if cid == self.chat else PANEL,
+                color=(0.20, 0.40, 0.56, 1) if cid == self.chat else PANEL,
             )
             row.bind(on_release=lambda _, c=cid: self.select(c))
             row.add_widget(Avatar(name, cid, pos_hint={"center_y": 0.5}))
@@ -544,6 +698,10 @@ class MehrApp(App):
                 stamp.color = (0.61, 0.69, 0.75, 1)
                 row.add_widget(stamp)
             self.chatlist.add_widget(row)
+        if not self.chatlist.children:
+            empty = wrapped_label("هنوز گفتگویی ندارید\nبا + یک مخاطب یا گروه اضافه کنید", size_hint_y=None, height=dp(140), font_size=dp(14))
+            empty.color = (0.58, 0.68, 0.77, 1)
+            self.chatlist.add_widget(empty)
 
     def select(self, cid):
         if cid != self.chat:
@@ -554,7 +712,8 @@ class MehrApp(App):
         self._view_signature = None
         self.view_limit = 100
         if self.mobile:
-            self.sidebar.size_hint_x = 0
+            self.sidebar.size_hint_x = None
+            self.sidebar.width = 0
             self.sidebar.opacity = 0
             self.sidebar.disabled = True
             self.mainpane.size_hint_x = 1
@@ -576,6 +735,7 @@ class MehrApp(App):
             return
         with self.engine.lock:
             self.statuslabel.text = fa(self.engine.status)
+            self.composer.disabled = not bool(self.chat)
             self.refresh_sidebar()
             self.heading.text = fa(dict(self.chats()).get(self.chat, "مهر"))
             messages = [
@@ -604,9 +764,18 @@ class MehrApp(App):
 
                 self.messagebox.add_widget(button("پیام‌های قبلی", more))
             available = max(
-                dp(240), Window.width - (0 if self.mobile else dp(320)) - dp(60)
+                dp(240), Window.width - (0 if self.mobile else dp(348)) - dp(60)
             )
+            previous_day = None
             for m in messages[-self.view_limit :]:
+                day = time.strftime("%Y/%m/%d", time.localtime(m["created"]))
+                if day != previous_day:
+                    date_row = AnchorLayout(size_hint_y=None, height=dp(36))
+                    chip = Surface(size_hint=(None, None), size=(dp(120), dp(28)), color=(0.13, 0.20, 0.26, 1))
+                    chip.add_widget(label(day, font_size=dp(11)))
+                    date_row.add_widget(chip)
+                    self.messagebox.add_widget(date_row)
+                    previous_day = day
                 own = m["author"] == self.engine.me
                 text = (
                     m.get("text", "")
@@ -644,7 +813,7 @@ class MehrApp(App):
                     padding=[dp(12), dp(7)],
                     size_hint_x=None,
                     width=width,
-                    color=(0.16, 0.33, 0.40, 1) if own else PANEL,
+                    color=(0.16, 0.32, 0.43, 1) if own else (0.13, 0.19, 0.25, 1),
                 )
                 if self.chat in self.engine.d["groups"]:
                     bubble.add_widget(
@@ -680,7 +849,7 @@ class MehrApp(App):
                 self.messagebox.add_widget(line)
             if not self.chat:
                 self.messagebox.add_widget(
-                    label("یک گفتگو انتخاب کنید", size_hint_y=None, height=dp(150))
+                    wrapped_label("گفتگو از همین‌جا شروع می‌شود\nیک مخاطب انتخاب کنید یا با + گفتگوی تازه بسازید", size_hint_y=None, height=dp(150))
                 )
             if at_bottom:
                 Clock.schedule_once(
@@ -837,6 +1006,14 @@ class MehrApp(App):
         box.add_widget(button("بستن", pop.dismiss))
 
     def settings(self):
+        if self.deployment:
+            box = BoxLayout(orientation="vertical", padding=dp(24), spacing=dp(16))
+            box.add_widget(label("مهر · " + __version__))
+            box.add_widget(label("TLS + Noise NK"))
+            box.add_widget(label("SSL فعال"))
+            pop = self.dialog("اطلاعات اتصال", box)
+            box.add_widget(button("بستن", pop.dismiss))
+            return
         box = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
         scroll = ScrollView()
         rows = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(10))
@@ -852,7 +1029,7 @@ class MehrApp(App):
             panel = Surface(
                 orientation="vertical",
                 size_hint_y=None,
-                height=dp(167),
+                height=dp(360),
                 padding=dp(8),
                 spacing=dp(5),
             )
@@ -870,7 +1047,12 @@ class MehrApp(App):
             top.add_widget(port)
             panel.add_widget(top)
             panel.add_widget(pin)
-            entry = (host, port, pin, panel)
+            transport = Spinner(text=value.get("transport", "noise"), values=("tls", "noise"), size_hint_y=None, height=dp(44))
+            ca = field("گواهی CA (PEM)", multiline=True)
+            ca.text = value.get("ca", "")
+            panel.add_widget(transport)
+            panel.add_widget(ca)
+            entry = (host, port, pin, panel, transport, ca)
             fields.append(entry)
 
             def remove():
@@ -888,8 +1070,8 @@ class MehrApp(App):
         def save():
             self.engine.configure_relays(
                 [
-                    {"host": h.text.strip(), "port": int(p.text), "pin": k.text.strip()}
-                    for h, p, k, _ in fields
+                    {"host": h.text.strip(), "port": int(p.text), "pin": k.text.strip(), "transport": t.text, "ca": c.text.strip()}
+                    for h, p, k, _, t, c in fields
                 ]
             )
             pop.dismiss()

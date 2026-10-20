@@ -32,6 +32,14 @@ jobs:
           mkdir -p reports
           set -o pipefail
           python -m unittest discover -s tests -v 2>&1 | tee reports/tests.txt
+      - name: Verify connection gate and dedicated profile privacy
+        shell: bash
+        run: |
+          if [ '${{ runner.os }}' = 'Linux' ]; then
+            xvfb-run -a python scripts/connection_gui_smoke.py > reports/connection-gui-test.txt 2>&1
+          else
+            KIVY_GL_BACKEND=angle_sdl2 python scripts/connection_gui_smoke.py > reports/connection-gui-test.txt 2>&1
+          fi
       - name: Build native relay
         shell: bash
         run: python scripts/build.py server > reports/build-relay.txt 2>&1

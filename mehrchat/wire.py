@@ -1,4 +1,4 @@
-"""Pinned Noise NK over outbound TCP. No TLS or unauthenticated fallback."""
+"""Pinned Noise NK over TCP or verified TLS; never downgrade on failure."""
 
 import asyncio, json, struct
 from noise.connection import NoiseConnection, Keypair
@@ -61,16 +61,22 @@ class Channel:
             pass
 
 
-async def connect(host, port, pin, identity, card):
-    reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), 12)
+async def initiate(reader, writer, pin):
+    noise = NoiseConnection.from_name(b"Noise_NK_25519_ChaChaPoly_SHA256")
+    noise.set_as_initiator()
+    noise.set_keypair_from_public_bytes(Keypair.REMOTE_STATIC, dec(pin))
+    noise.start_handshake()
+    await write_frame(writer, noise.write_message(), NOISE_MAX)
+    noise.read_message(await read_frame(reader, NOISE_MAX))
+    return Channel(reader, writer, noise)
+
+
+async def connect(host, port, pin, identity, card, *, transport="noise", ca=""):
+    from .connection import open_transport
+    reader, writer = await open_transport(dict(host=host, port=port, transport=transport, ca=ca))
     try:
-        noise = NoiseConnection.from_name(b"Noise_NK_25519_ChaChaPoly_SHA256")
-        noise.set_as_initiator()
-        noise.set_keypair_from_public_bytes(Keypair.REMOTE_STATIC, dec(pin))
-        noise.start_handshake()
-        await write_frame(writer, noise.write_message(), NOISE_MAX)
-        noise.read_message(await read_frame(reader, NOISE_MAX))
-        channel = Channel(reader, writer, noise)
+        channel = await initiate(reader, writer, pin)
+        noise = channel.noise
         await channel.send(
             {
                 "card": card,
@@ -101,6 +107,11 @@ async def accept(reader, writer, identity, register=None):
     await write_frame(writer, noise.write_message(), NOISE_MAX)
     channel = Channel(reader, writer, noise)
     auth = await channel.recv()
+    if auth == {"op": "probe"}:
+        from .connection import PROTOCOL
+        from . import __version__
+        await channel.send({"ok": True, "protocol": PROTOCOL, "version": __version__})
+        return channel, None
     if verify(auth["card"], auth["proof"]) != {
         "context": "MehrChat-login-v2",
         "transcript": enc(noise.get_handshake_hash()),

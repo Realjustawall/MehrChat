@@ -5,6 +5,7 @@ import hmac
 import json
 import os
 import secrets
+import ssl
 import sqlite3
 import time
 from pathlib import Path
@@ -230,6 +231,8 @@ class Relay:
             channel, card = await asyncio.wait_for(
                 accept(reader, writer, self.identity, self.register), 15
             )
+            if card is None:  # Authenticated pre-login probe; never register an account.
+                return
             user = check_card(card)["id"]
             if user in self.active:
                 user = None
@@ -310,6 +313,10 @@ class Relay:
 
     def start_admin(self, port=8788):
         relay = self
+        from threading import Lock
+        from .deployment import verify_admin
+        attempts = []
+        attempt_lock = Lock()
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *_):
@@ -328,7 +335,7 @@ class Relay:
                     return
                 html = """<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><title>مدیریت مهر</title>
 <style>@font-face{font-family:Vazirmatn;src:url('/font.ttf')}body{font-family:Vazirmatn,sans-serif;background:#17212b;color:#fff;font-size:18px;max-width:620px;margin:70px auto}input,button{font:inherit;padding:14px;margin:10px}</style>
-<h1>تنظیمات سرور</h1><form method="post"><p>رمز مدیریت</p><input type="password" name="token" required autocomplete="off"><p><label><input type="checkbox" name="files" value="yes">فعال‌سازی ارسال فایل</label></p><button>ذخیره</button></form><p>حداکثر حجم فایل: ۴ مگابایت</p></html>"""
+<h1>تنظیمات سرور</h1><form method="post"><p>نام کاربری مدیر</p><input name="username" autocomplete="username"><p>رمز مدیریت</p><input type="password" name="token" required autocomplete="off"><p><label><input type="checkbox" name="files" value="yes">فعال‌سازی ارسال فایل</label></p><button>ذخیره</button></form><p>حداکثر حجم فایل: ۴ مگابایت</p></html>"""
                 if relay.settings()["files_enabled"]:
                     html = html.replace('value="yes"', 'value="yes" checked')
                 self.send_response(200)
@@ -344,14 +351,28 @@ class Relay:
             def do_POST(self):
                 from urllib.parse import parse_qs
 
-                n = int(self.headers.get("Content-Length", "0"))
+                with attempt_lock:
+                    now = time.monotonic()
+                    attempts[:] = [t for t in attempts if now - t < 60]
+                    if len(attempts) >= 10:
+                        self.send_error(429)
+                        return
+                    attempts.append(now)
+                try:
+                    n = int(self.headers.get("Content-Length", "0"))
+                except ValueError:
+                    self.send_error(400)
+                    return
                 if not 0 < n <= 4096:
                     self.send_error(400)
                     return
                 values = parse_qs(self.rfile.read(n).decode())
-                if not hmac.compare_digest(
-                    values.get("token", [""])[0], relay.admin_token
-                ):
+                password = values.get("token", [""])[0]
+                if (relay.root / "admin-credentials.json").exists():
+                    allowed = verify_admin(relay.root, values.get("username", [""])[0], password)
+                else:
+                    allowed = hmac.compare_digest(password, relay.admin_token)
+                if not allowed:
                     self.send_error(403)
                     return
                 conf = relay.settings()
@@ -388,7 +409,15 @@ async def run(args):
         flush=True,
     )
     relay.start_admin(args.admin_port)
-    server = await asyncio.start_server(relay.handle, args.host, args.port)
+    context = None
+    if bool(args.tls_cert) != bool(args.tls_key):
+        raise ValueError("Both --tls-cert and --tls-key are required")
+    if args.tls_cert:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.load_cert_chain(args.tls_cert, args.tls_key)
+    server = await asyncio.start_server(relay.handle, args.host, args.port, ssl=context,
+                                        **({"ssl_handshake_timeout": 12} if context else {}))
 
     async def sweep():
         while True:
@@ -410,6 +439,8 @@ def main():
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--admin-port", type=int, default=8788)
     parser.add_argument("--data", default="relay-data")
+    parser.add_argument("--tls-cert")
+    parser.add_argument("--tls-key")
     args = parser.parse_args()
     try:
         asyncio.run(run(args))

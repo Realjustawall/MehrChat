@@ -21,3 +21,9 @@ admin-token.txt
 *.p12
 *.pfx
 signing-password.txt
+mehrchat/_deployment.py
+admin-credentials.json
+deployment.json
+client-profile.json
+ca-key.pem
+server-key.pem
