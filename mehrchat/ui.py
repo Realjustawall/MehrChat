@@ -83,6 +83,22 @@ def label(text="", **kw):
     return Label(text=fa(text), font_name=FONT, color=TEXT, **kw)
 
 
+def wrapped_label(text, **kw):
+    widget = label("", halign="right", valign="middle", **kw)
+
+    def fit(*_):
+        # Wrap logical Persian before bidi shaping; wrapping the visual string
+        # reverses sentence fragments on narrow screens.
+        columns = max(8, int(widget.width / (widget.font_size * 0.65)))
+        lines = ["\n".join(textwrap.wrap(line, columns) or [""]) for line in str(text).split("\n")]
+        widget.text_size = widget.size
+        widget.text = fa("\n".join(lines))
+
+    widget.bind(size=fit, font_size=fit)
+    fit()
+    return widget
+
+
 def button(text, callback, **kw):
     color = kw.pop("background_color", BLUE)
     b = Button(
@@ -219,7 +235,7 @@ class MehrApp(App):
 
     def error(self, message):
         box = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(12))
-        box.add_widget(label(str(message)))
+        box.add_widget(wrapped_label(str(message)))
         pop = self.dialog("پیام", box)
         box.add_widget(button("بستن", pop.dismiss))
 
@@ -299,8 +315,7 @@ class MehrApp(App):
             "با حذف برنامه در اندروید، کلید داخل برنامه پاک می‌شود.\n"
             "رمز پشتیبان را نگه دارید؛ بازیابی بدون آن ممکن نیست."
         )
-        notice = label(text, halign="right", valign="middle")
-        notice.bind(size=lambda w, value: setattr(w, "text_size", value))
+        notice = wrapped_label(text)
         box.add_widget(notice)
         pop = self.dialog("پشتیبان حساب", box)
         box.add_widget(button("ذخیره پشتیبان", lambda: self.backup_dialog(on_saved=pop.dismiss)))
