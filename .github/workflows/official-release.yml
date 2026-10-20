@@ -66,7 +66,21 @@ jobs:
             const fs = require('fs');
             const blob = (await github.rest.git.getBlob({...context.repo, file_sha:process.env.SIGNED_BLOB})).data;
             if (blob.encoding !== 'base64') throw new Error('Unexpected blob encoding');
-            fs.writeFileSync('signed-release.apk',Buffer.from(blob.content,'base64'));
+            const manifest = JSON.parse(Buffer.from(blob.content,'base64').toString('utf8'));
+            if (manifest.format !== 'MehrChat-signed-apk-v1' || !Array.isArray(manifest.parts) || manifest.parts.length < 1 || manifest.parts.length > 32) throw new Error('Invalid signed APK manifest');
+            if (!Number.isSafeInteger(manifest.size) || manifest.size < 1 || manifest.size > 100*1024*1024) throw new Error('Invalid signed APK size');
+            const buffers = [];
+            for (const part of manifest.parts) {
+              if (!/^[a-f0-9]{40}$/.test(part.sha) || !Number.isSafeInteger(part.size) || part.size < 1 || part.size > 8*1024*1024) throw new Error('Invalid signed APK part');
+              const data = (await github.rest.git.getBlob({...context.repo,file_sha:part.sha})).data;
+              if (data.encoding !== 'base64') throw new Error('Unexpected part encoding');
+              const buffer = Buffer.from(data.content,'base64');
+              if (buffer.length !== part.size) throw new Error('Incomplete signed APK part');
+              buffers.push(buffer);
+            }
+            const signed = Buffer.concat(buffers);
+            if (signed.length !== manifest.size || require('crypto').createHash('sha256').update(signed).digest('hex') !== manifest.sha256) throw new Error('Signed APK transfer digest mismatch');
+            fs.writeFileSync('signed-release.apk',signed);
       - name: Verify signature, tested payload and package release assets
         env:
           RELEASE_VERSION: ${{ steps.verified.outputs.version }}
