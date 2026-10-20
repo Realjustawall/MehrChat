@@ -332,6 +332,7 @@ class MehrApp(App):
         self.mobile = Window.width < dp(720)
         self.view_limit = 100
         self._view_signature = None
+        self._sidebar_signature = None
         body = BoxLayout(spacing=dp(1))
         self.sidebar = Surface(
             orientation="vertical",
@@ -354,7 +355,7 @@ class MehrApp(App):
         toolbar.add_widget(button("+", self.new_menu, size_hint_x=None, width=dp(44)))
         self.sidebar.add_widget(toolbar)
         self.search = field("جستجو")
-        self.search.bind(text=lambda *_: self.refresh_sidebar())
+        self.search.bind(text=lambda *_: self.refresh())
         self.sidebar.add_widget(self.search)
         scroll = ScrollView()
         self.chatlist = BoxLayout(
@@ -456,8 +457,23 @@ class MehrApp(App):
         return rows
 
     def refresh_sidebar(self):
-        self.chatlist.clear_widgets()
         term = self.search.text.lower()
+        now = time.time()
+        rows = self.chats()
+        summary = []
+        for cid, name in rows:
+            last = next(
+                (m for m in reversed(self.engine.d["messages"].get(cid, [])) if m["expires"] > now),
+                None,
+            )
+            group = self.engine.d["groups"].get(cid)
+            summary.append((cid, name, last["id"] if last else None,
+                            len(group["body"]["members"]) if group else 0))
+        signature = (self.chat, term, tuple(summary))
+        if signature == self._sidebar_signature:
+            return
+        self._sidebar_signature = signature
+        self.chatlist.clear_widgets()
 
         def recent(cid):
             return max(
@@ -470,7 +486,7 @@ class MehrApp(App):
             )
 
         for cid, name in sorted(
-            self.chats(), key=lambda row: recent(row[0]), reverse=True
+            rows, key=lambda row: recent(row[0]), reverse=True
         ):
             if term and term not in name.lower():
                 continue

@@ -5,9 +5,11 @@ Always uses a temporary vault; never reads the interactive user's account.
 import io, json, os, time
 from pathlib import Path
 from kivy.clock import Clock
+from kivy.core.window import Window
 from kivy.uix.button import Button
 from kivy.uix.checkbox import CheckBox
 from kivy.uix.textinput import TextInput
+from kivy.uix.label import Label
 from .crypto import create_identity, public_card
 from . import ratchet
 from nacl.utils import random
@@ -174,9 +176,20 @@ def install(app, result_path):
                     popup.dismiss()
 
                 def finish(*_):
+                    assert len(app.chatlist.children) == len(app.chats())
+                    for row in app.chatlist.children:
+                        for widget in row.walk():
+                            if isinstance(widget, Label) and widget.text.strip():
+                                assert widget.texture is not None and widget.texture.width > 1
+                    before = tuple(app.chatlist.children)
+                    app.refresh()
+                    assert before == tuple(app.chatlist.children), "Unchanged status must not rebuild the chat list"
                     screenshot = os.environ.get("MEHRCHAT_SMOKE_SCREENSHOT")
                     if screenshot:
-                        app.root.export_to_png(screenshot)
+                        captured = Window.screenshot(name=screenshot)
+                        assert captured and Path(captured).is_file()
+                        if Path(captured).resolve() != Path(screenshot).resolve():
+                            os.replace(captured, screenshot)
                     result = dict(
                         account_creation=True,
                         compiled_double_ratchet=True,
@@ -189,6 +202,7 @@ def install(app, result_path):
                         backup_reminder=True,
                         encrypted_backup_restore_dialog=True,
                         drafts_isolated_and_restored=True,
+                        stable_chat_list_and_rendered_text=True,
                     )
                     if network:
                         result["tcp_noise_e2ee_request_reply"] = True
@@ -196,7 +210,7 @@ def install(app, result_path):
                     print("NATIVE_GUI_FLOW_PASS", flush=True)
                     app.stop()
 
-                Clock.schedule_once(finish, 0.3)
+                Clock.schedule_once(finish, 1.5)
                 return False
 
             Clock.schedule_interval(restored, 0.1)
