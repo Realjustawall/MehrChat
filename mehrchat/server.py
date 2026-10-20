@@ -13,7 +13,10 @@ from threading import Thread
 from .crypto import create_identity, public_card, check_card, verify, pack
 from .wire import accept
 
-MAX_CIPHER = 8 * 1024 * 1024
+# A 4 MiB attachment is base64 inside encrypted JSON and the ciphertext is
+# base64 again. Allow the signed 32-member/64-epoch descriptor as well.
+MAX_CIPHER = 12 * 1024 * 1024
+MAX_CONTROL_CIPHER = 4 * 1024 * 1024
 CLOCK_SKEW = 300
 
 
@@ -180,7 +183,7 @@ class Relay:
         limit = (
             MAX_CIPHER
             if body["kind"] == "file" and conf["files_enabled"]
-            else 2 * 1024 * 1024
+            else MAX_CONTROL_CIPHER
         )
         if len(raw) > limit:
             raise ValueError("Packet too large")

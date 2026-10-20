@@ -1,6 +1,9 @@
 """Behavioral regressions for identity survival and sender-controlled retention."""
 
 import copy
+import hashlib
+import json
+import secrets
 import tempfile
 import time
 import unittest
@@ -11,7 +14,8 @@ from nacl.exceptions import CryptoError
 from nacl.secret import SecretBox
 
 from test_security import clients, pump
-from mehrchat.crypto import pack, public_card
+from mehrchat.crypto import create_identity, enc, pack, public_card, signed
+from mehrchat.server import Relay
 from mehrchat.vault import MAGIC, Vault
 
 PASSWORD = "account backup test password"
@@ -117,6 +121,37 @@ class BackupSafetyTests(unittest.TestCase):
 
 
 class RequestedBehaviorTests(unittest.TestCase):
+    def test_maximum_group_history_accepts_text_and_full_size_attachment(self):
+        a, b, c = clients()
+        cards = {e.me: e.card for e in (a, b, c)}
+        for index in range(29):
+            card = public_card(create_identity("member_" + str(index), "😀" * 80))
+            cards[card["body"]["id"]] = card
+        members, gid, chain = sorted(cards), secrets.token_hex(32), []
+        for epoch in range(64):
+            body = dict(v=2, id=gid, epoch=epoch, owner=a.me, name="گروه", members=members, cards=cards,
+                        previous=hashlib.sha256(pack(chain[-1])).hexdigest() if chain else None)
+            chain.append(signed(a.identity, body))
+        descriptor = dict(body=body, chain=chain)
+        a.groups.validate(descriptor, a.me)
+        now = int(time.time())
+        raw_file = b"x" * (4 * 1024 * 1024)
+        with tempfile.TemporaryDirectory() as directory:
+            relay = Relay(directory)
+            try:
+                relay.config_path.write_text(json.dumps(dict(files_enabled=True, max_file_bytes=len(raw_file))))
+                for kind in ("message", "file"):
+                    payload = dict(id=secrets.token_hex(16), chat=descriptor, author=a.me,
+                                   created=now, expires=now + 3600, kind=kind, text="سلام")
+                    if kind == "file":
+                        payload.update(filename="document.bin", file=enc(raw_file))
+                    item = a.secure.encrypt(b.me, payload, payload["expires"], kind)
+                    self.assertTrue(relay.put(a.card, item)["ok"])
+                    b.ingest(item)
+                self.assertEqual(b.read_file(gid, payload["id"]), raw_file)
+            finally:
+                relay.db.close()
+
     def test_expired_file_cannot_be_saved_even_before_next_prune(self):
         a, b, c = clients()
         chat = a.dm_id(b.me)

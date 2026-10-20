@@ -736,7 +736,7 @@ class Engine:
                                             len(pack(p)) for p in self.d["quarantine"]
                                         )
                                         + len(pack(incoming))
-                                        <= 8 * 1024 * 1024
+                                        <= 16 * 1024 * 1024
                                     ):
                                         self.d["quarantine"].append(incoming)
                                     else:
