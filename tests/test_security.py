@@ -87,7 +87,9 @@ class SecurityTests(unittest.TestCase):
 
     def test_ciphertext_tamper(self):
         item = envelope(self.a.identity, self.b.card, {}, int(time.time()) + 100)
-        item["body"]["ciphertext"] = "A" + item["body"]["ciphertext"][1:]
+        tampered = bytearray(dec(item["body"]["ciphertext"]))
+        tampered[0] ^= 1
+        item["body"]["ciphertext"] = enc(tampered)
         with self.assertRaises((BadSignatureError, CryptoError)):
             open_envelope(self.b.identity, self.a.card, item)
 
@@ -234,6 +236,7 @@ class VaultTests(unittest.TestCase):
                 public_card(restored.data["identity"]),
                 public_card(vault.data["identity"]),
             )
+            restored.close()
             raw = bytearray(path.read_bytes())
             raw[-1] ^= 1
             path.write_bytes(raw)

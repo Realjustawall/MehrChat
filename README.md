@@ -13,4 +13,4 @@ Persian native messenger for Windows, Linux and Android with self-hosted Windows
 
 [Persian setup](README.fa.md) · [Security model](SECURITY.md) · [Build checks](BUILD_STATUS.md) · [GitHub Actions](https://github.com/Realjustawall/MehrChat/actions)
 
-Version **0.2.0-rc1** is independently unaudited. Release APKs require the owner's signing key. Android uninstall requires an external encrypted backup to preserve identity. The interface follows a familiar messenger layout; it is not pixel-identical to Telegram.
+Version **0.2.1-rc1** is independently unaudited. Release APKs require the owner's signing key. Android uninstall requires an external encrypted backup to preserve identity. The interface follows a familiar messenger layout; it is not pixel-identical to Telegram. See `FEATURES.fa.md` for the requirement-by-requirement review, evidence and limits.

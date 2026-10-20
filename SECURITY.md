@@ -1,4 +1,4 @@
-# Security scope — 0.2.0-rc1
+# Security scope — 0.2.1-rc1
 
 This integration has not received an independent cryptographic audit. Tests demonstrate selected behaviors, not a security proof or production certification. Trusted endpoints and independent fingerprint comparison are required.
 
@@ -16,11 +16,17 @@ Groups: up to 32 members and 64 creator-signed membership epochs, with accepted-
 
 Deletion: authenticated events/local tombstones and sender-signed retraction capabilities. Only original sender/recipient can purge a delivery envelope. Relay tombstones bind id, sender and recipient, preventing a capability for another route from suppressing a foreign message. Private participants may delete either side's messages; group participants may delete only their own. Tombstones last up to 90 days; normal TTL at most 30 days. Upper relay bounds allow five minutes clock skew. External copies, screenshots, malicious clients/relays, old backups and physical flash remnants cannot be remotely erased.
 
-Visible relay metadata: IP, timing, size, sender/recipient identifiers, kind and expiry. Dropping, delaying and denial of service remain possible; this is not anonymous messaging. Limits: 2000 envelopes / 64 MiB per recipient, 1 GiB queue, 64 connections, 20 requests/sec and burst 120. File names reject traversal, device names, alternate streams and bidi override characters before commit/export defaults. Files default off, up to 4 MiB; logical records 16 MiB; quarantine 100 envelopes / 8 MiB. Group fanout/full-vault serialization limit scale; no sustained-load certification exists.
+Visible relay metadata: IP, timing, size, sender/recipient identifiers, kind and expiry. Dropping, delaying and denial of service remain possible; this is not anonymous messaging. Limits: 2000 envelopes / 64 MiB per recipient, 1 GiB queue, 64 connections, 20 requests/sec and burst 120. File names reject traversal, device names, alternate streams and bidi override characters before commit/export defaults. Files default off, up to 4 MiB; logical records 16 MiB; encrypted relay envelopes at most 12 MiB for files and 4 MiB otherwise, allowing the maximum signed group history and encoding overhead; quarantine 100 envelopes / 16 MiB. Group fanout/full-vault serialization limit scale; no sustained-load certification exists.
 
 Admin HTTP is loopback-only with random token. Never expose it publicly. The message listener intentionally binds public interfaces; use supplied service permissions and host firewall. Multi-relay usernames are independent. Background push, multi-device sync, calls and large-file streaming are outside this version.
 
+The Windows installer runs the relay as limited Local Service (SID S-1-5-19), with read/execute access to the installed executable and modify access to its protected data directory. It does not run as SYSTEM. Ubuntu uses a dedicated service user with NoNewPrivileges and read-only system protection. Reinstallation restarts the installed process and preserves its transport key; CI verifies a second install, an authenticated connection and unchanged public pin.
+
 Desktop uninstallation preserves the external vault path. Android uninstall deletes private data: an explicit external encrypted backup is required. No recovery backdoor exists.
+
+Backup restoration authenticates and validates basic account structure before publication, takes the destination account's exclusive lock and retains it for the restored session. Existing accounts are never overwritten. A failed password attempt releases its lock explicitly. Desktop backup export uses exclusive creation and removes partial output on write failure. Password changes invalidate the backup reminder marker; old backups retain their old password. Encrypted per-chat drafts are isolated when switching recipients and saved before lock. File export rechecks the live account, message existence and expiry after the document picker returns.
+
+Backup export and restore share a 1 GiB limit; export rejects larger snapshots rather than creating an unsupported backup. The whole-vault format still requires enough RAM for encoding, decryption and the decoded state. Large histories and group fanout can exceed practical mobile memory limits; the size bound is not a claim that every phone can restore a 1 GiB account.
 
 Release gates: independent review, physical Android/native target tests, domestic cross-operator trials, abuse/load testing and owner-controlled signing. APK inspection checks pinned versions, foreign-architecture libraries, 16 KiB ELF alignment and backup/debug settings. Emulator startup is separate from physical-device validation.
 

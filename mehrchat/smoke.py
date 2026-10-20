@@ -2,9 +2,14 @@
 Always uses a temporary vault; never reads the interactive user's account.
 """
 
-import json, os, time
+import io, json, os, time
 from pathlib import Path
 from kivy.clock import Clock
+from kivy.core.image import Image as CoreImage
+from kivy.uix.button import Button
+from kivy.uix.checkbox import CheckBox
+from kivy.uix.textinput import TextInput
+from kivy.uix.label import Label
 from .crypto import create_identity, public_card
 from . import ratchet
 from nacl.utils import random
@@ -30,6 +35,32 @@ def install(app, result_path):
             raise AssertionError("GUI login timed out")
         if app.engine is None:
             return True
+        assert app.open_popups, "New accounts must be shown the external backup reminder"
+        from .ui import fa, platform
+        if platform == "android":
+            assert app.open_popups[-1].auto_dismiss is False
+        setup_backup = io.BytesIO()
+        picker = app.choose_document
+        reminder = app.open_popups[-1]
+        app.choose_document = lambda mode, name, callback: callback(setup_backup)
+        app.backup_dialog(on_saved=reminder.dismiss)
+        app.choose_document = picker
+        assert setup_backup.getvalue().startswith(b"MEHRVAULT1\0")
+        assert app.engine.d["backup_last_at"] > 0 and reminder not in app.open_popups
+        if platform != "android":
+            failed_output = app.vault_path.parent / "failed-export.mcv"
+
+            def fail_export(stream):
+                stream.write(b"partial encrypted output")
+                raise OSError("simulated disk full")
+
+            app.choose_document("save", "failed-export.mcv", fail_export)
+            widgets = list(app.open_popups[-1].content.walk())
+            next(w for w in widgets if isinstance(w, TextInput)).text = str(failed_output)
+            next(w for w in widgets if isinstance(w, Button) and w.text == fa("تأیید")).dispatch("on_release")
+            assert not failed_output.exists(), "The GUI must remove its partial export"
+            for popup in list(app.open_popups):
+                popup.dismiss()
         peer = (
             network["card"]
             if network
@@ -54,8 +85,33 @@ def install(app, result_path):
         app.compose.text = TEXT
         app.send()
         assert any(m.get("text") == TEXT for m in app.engine.d["messages"][chat])
-        group = app.engine.create_group("گروه آزمون", [peer["body"]["id"]])
+        private_draft = "پیش‌نویس خصوصی"
+        group_draft = "پیش‌نویس گروه"
+        app.compose.text = private_draft
+        app.group_dialog()
+        widgets = list(app.open_popups[-1].content.walk())
+        next(w for w in widgets if isinstance(w, TextInput) and w.hint_text == "نام گروه").text = "گروه آزمون"
+        members = [w for w in widgets if isinstance(w, CheckBox)]
+        assert len(members) == 1
+        members[0].active = True
+        next(w for w in widgets if isinstance(w, Button) and w.text == fa("ساخت گروه")).dispatch("on_release")
+        group = app.chat
+        assert group in app.engine.d["groups"]
+        assert app.compose.text == "", "A draft must never move to another recipient"
+        app.compose.text = group_draft
+        app.select(chat)
+        assert app.compose.text == private_draft
         app.select(group)
+        assert app.compose.text == group_draft
+        # Import/confirmation must also go through the same recipient-switch path.
+        app.contact_dialog()
+        widgets = list(app.open_popups[-1].content.walk())
+        next(w for w in widgets if isinstance(w, TextInput) and w.hint_text == "کارت هویت مخاطب").text = json.dumps(peer)
+        next(w for w in widgets if isinstance(w, TextInput) and w.hint_text == "اثر انگشت تأییدشده").text = peer["body"]["id"]
+        next(w for w in widgets if isinstance(w, Button) and w.text == fa("افزودن")).dispatch("on_release")
+        assert app.chat == chat and app.compose.text == private_draft
+        app.select(group)
+        assert app.compose.text == group_draft
         steps = [
             app.settings,
             app.profile_dialog,
@@ -89,11 +145,51 @@ def install(app, result_path):
                 assert app.engine.me == identity and any(
                     m.get("text") == TEXT for m in app.engine.d["messages"][chat]
                 )
+                assert app.engine.d["drafts"][chat] == private_draft
+                assert app.engine.d["drafts"][group] == group_draft
+                # Exercise the actual UI backup callback and restore dialog. Only
+                # this smoke launcher's temporary account is removed, never user data.
+                backup = io.BytesIO()
+                original_picker = app.choose_document
+                app.choose_document = lambda mode, name, callback: callback(backup)
+                app.backup_dialog()
+                raw_backup = backup.getvalue()
+                assert app.engine.d["backup_last_at"] > 0
+                assert TEXT.encode() not in raw_backup
+                app.lock_account()
+                app.vault_path.unlink()
+                app.choose_document = lambda mode, name, callback: callback(io.BytesIO(raw_backup))
+                app.restore_dialog()
+                from kivy.uix.textinput import TextInput
+                from kivy.uix.button import Button
+                from .ui import fa
+
+                restore_popup = app.open_popups[-1]
+                widgets = list(restore_popup.content.walk())
+                next(w for w in widgets if isinstance(w, TextInput) and w.password).text = PASSWORD
+                next(w for w in widgets if isinstance(w, Button) and w.text == fa("بازیابی")).dispatch("on_release")
+                app.choose_document = original_picker
+                assert app.engine is not None and app.engine.me == identity
+                assert app.engine.d["drafts"][chat] == private_draft
+                assert any(m.get("text") == TEXT for m in app.engine.d["messages"][chat])
+                for popup in list(app.open_popups):
+                    popup.dismiss()
 
                 def finish(*_):
+                    assert len(app.chatlist.children) == len(app.chats())
+                    for row in app.chatlist.children:
+                        for widget in row.walk():
+                            if isinstance(widget, Label) and widget.text.strip():
+                                assert widget.texture is not None and widget.texture.width > 1
+                    before = tuple(app.chatlist.children)
+                    app.refresh()
+                    assert before == tuple(app.chatlist.children), "Unchanged status must not rebuild the chat list"
                     screenshot = os.environ.get("MEHRCHAT_SMOKE_SCREENSHOT")
                     if screenshot:
                         app.root.export_to_png(screenshot)
+                        pixels = CoreImage(screenshot).texture.pixels
+                        colors = {pixels[i:i + 3] for i in range(0, len(pixels), 4 * 37)}
+                        assert len(colors) > 32, "The captured UI must not be blank"
                     result = dict(
                         account_creation=True,
                         compiled_double_ratchet=True,
@@ -103,6 +199,10 @@ def install(app, result_path):
                         vault_encrypted=True,
                         lock_unlock=True,
                         identity_preserved=True,
+                        backup_reminder=True,
+                        encrypted_backup_restore_dialog=True,
+                        drafts_isolated_and_restored=True,
+                        stable_chat_list_and_rendered_text=True,
                     )
                     if network:
                         result["tcp_noise_e2ee_request_reply"] = True
@@ -110,7 +210,7 @@ def install(app, result_path):
                     print("NATIVE_GUI_FLOW_PASS", flush=True)
                     app.stop()
 
-                Clock.schedule_once(finish, 0.3)
+                Clock.schedule_once(finish, 1.5)
                 return False
 
             Clock.schedule_interval(restored, 0.1)
