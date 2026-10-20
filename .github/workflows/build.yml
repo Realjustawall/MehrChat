@@ -75,6 +75,9 @@ jobs:
           else
             KIVY_GL_BACKEND=angle_sdl2 python scripts/build.py client > reports/build-client.txt 2>&1
           fi
+      - name: Test packaged Ubuntu setup wizard
+        if: runner.os == 'Linux'
+        run: python scripts/verify_setup_binary.py > reports/compiled-setup-test.txt 2>&1
       - name: Test compiled relay with real clients
         shell: bash
         run: python tests/binary_smoke.py > reports/compiled-relay-test.txt 2>&1
@@ -278,7 +281,7 @@ jobs:
           path: reports/
   candidate:
     needs: [native, android]
-    if: github.actor == github.repository_owner
+    if: github.actor == github.repository_owner && !github.event.inputs.profile_b64
     runs-on: ubuntu-24.04
     permissions:
       contents: write
