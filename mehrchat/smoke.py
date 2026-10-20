@@ -5,6 +5,7 @@ Always uses a temporary vault; never reads the interactive user's account.
 import io, json, os, time
 from pathlib import Path
 from kivy.clock import Clock
+from kivy.core.window import Window
 from kivy.core.image import Image as CoreImage
 from kivy.uix.button import Button
 from kivy.uix.checkbox import CheckBox
@@ -27,7 +28,11 @@ def install(app, result_path):
         gallery.mkdir(parents=True, exist_ok=True)
     def capture(name):
         if gallery:
-            app.root.export_to_png(str(gallery / (name + ".png")))
+            target = gallery / (name + ".png")
+            # Popups are Window children, outside the app root's canvas.
+            actual = Path(Window.screenshot(name=str(target)))
+            if actual != target:
+                actual.replace(target)
     config_path = os.environ.get("MEHRCHAT_SMOKE_NETWORK_CONFIG")
     network = json.loads(Path(config_path).read_text()) if config_path else None
 

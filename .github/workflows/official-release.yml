@@ -87,9 +87,19 @@ jobs:
             const version = process.env.RELEASE_VERSION;
             const tag = 'v'+version;
             const body = `Secure Ubuntu installation with verified TLS/private-CA fallback, authenticated pre-login connection setup, dedicated Windows/Android builds and refreshed Persian desktop/mobile UI.\n\nInstallation and setup: see README.md in the source archive or repository.\n\nSource: ${context.sha}\nTested source (identical tree): ${process.env.TESTED_SOURCE}\nNative/Android validation: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${process.env.TESTED_RUN}\n\nAndroid release is non-debuggable and signed with the existing owner key. Certificate SHA-256: ${process.env.ANDROID_CERT_SHA256}\nWindows executables are not Authenticode-signed.\n\nAssets include Windows/Linux clients and relays, the signed Android arm64 APK, Ubuntu server source/installer, actual Windows/Android UI screenshots, test reports, English installation guide and SHA-256 checksums. No independent security audit is claimed.`;
-            const release = await github.rest.repos.createRelease({...context.repo,tag_name:tag,target_commitish:context.sha,name:'MehrChat '+version,body,draft:true,prerelease:false});
+            const existing = (await github.rest.repos.listReleases({...context.repo,per_page:100})).data.find(r=>r.tag_name === tag);
+            if (existing && (!existing.draft || existing.target_commitish !== context.sha)) throw new Error('Refusing to replace an existing public or unrelated release');
+            const release = existing ? {data:existing} : await github.rest.repos.createRelease({...context.repo,tag_name:tag,target_commitish:context.sha,name:'MehrChat '+version,body,draft:true,prerelease:false});
+            const crypto = require('crypto');
+            const uploaded = (await github.rest.repos.listReleaseAssets({...context.repo,release_id:release.data.id,per_page:100})).data;
             for (const name of fs.readdirSync('release-assets').sort()) {
               const data = fs.readFileSync('release-assets/'+name);
+              const previous = uploaded.find(a=>a.name === name);
+              if (previous) {
+                const digest = 'sha256:'+crypto.createHash('sha256').update(data).digest('hex');
+                if (previous.digest !== digest || previous.size !== data.length) throw new Error('Conflicting draft asset: '+name);
+                continue;
+              }
               await github.rest.repos.uploadReleaseAsset({...context.repo,release_id:release.data.id,name,data,headers:{'content-type':'application/octet-stream'}});
             }
             const published = await github.rest.repos.updateRelease({...context.repo,release_id:release.data.id,draft:false,prerelease:false,make_latest:'true'});
