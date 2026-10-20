@@ -76,6 +76,7 @@ class Engine:
         self._depth = 0
         self.lookup_requests = []
         self.connected = {}
+        self.connection_errors = {}
         self.rejected = 0
         legacy = [
             p
@@ -584,6 +585,7 @@ class Engine:
     def start(self):
         if self.running:
             return
+        self.connection_errors.clear()
         self.running = True
         self.thread = threading.Thread(target=self._thread_main, daemon=True)
         self.thread.start()
@@ -626,6 +628,7 @@ class Engine:
                     self.card,
                 )
                 self.connected[route] = False
+                self.connection_errors.pop(route, None)
                 self.status = "متصل"
                 last_settings = last_prune = 0
                 while self.running:
@@ -747,14 +750,20 @@ class Engine:
                         await channel.recv()
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                self.status = "در حال اتصال"
-                self.notify()
+            except Exception as exc:
+                if isinstance(exc, ValueError) and str(exc) == "این نام کاربری قبلاً ثبت شده است":
+                    self.connection_errors[route] = "نام کاربری در سرور تکراری است"
             finally:
                 self.connected.pop(route, None)
                 self.files_enabled = bool(self.connected) and all(
                     self.connected.values()
                 )
+                self.status = (
+                    "آفلاین" if not self.running else
+                    "متصل" if self.connected else
+                    next(iter(self.connection_errors.values()), "در حال اتصال")
+                )
+                self.notify()
                 if channel:
                     await channel.close()
             if self.running:

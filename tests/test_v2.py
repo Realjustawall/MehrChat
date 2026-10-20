@@ -356,6 +356,39 @@ class NetworkV2Tests(unittest.IsolatedAsyncioTestCase):
     channel = legacy.NetworkTests.channel
     request = legacy.NetworkTests.request
 
+    async def test_duplicate_username_is_visible_and_failed_route_does_not_hide_connection(self):
+        owner = Engine(MemoryVault("shared_name"))
+        duplicate = Engine(MemoryVault("shared_name"))
+        good = dict(host="127.0.0.1", port=self.port, pin=self.relay.pin)
+        wrong = dict(good, pin=enc(b"x" * 32))
+        owner.d["relays"] = [good, wrong]
+        duplicate.d["relays"] = [good]
+        tasks = []
+
+        async def until(predicate):
+            for _ in range(200):
+                if predicate():
+                    return
+                await asyncio.sleep(0.05)
+            self.fail("Connection state did not settle")
+
+        try:
+            owner.running = True
+            tasks.append(asyncio.create_task(owner.loop()))
+            await until(lambda: owner.status == "متصل")
+            duplicate.running = True
+            tasks.append(asyncio.create_task(duplicate.loop()))
+            await until(lambda: duplicate.status == "نام کاربری در سرور تکراری است")
+            # Let the second route fail/retry while the usable route stays open.
+            for _ in range(25):
+                await asyncio.sleep(0.05)
+                self.assertEqual(owner.status, "متصل")
+        finally:
+            owner.running = duplicate.running = False
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
     async def test_large_file_spans_noise_records(self):
         self.relay.config_path.write_text(
             json.dumps({"files_enabled": True, "max_file_bytes": 4 * 1024 * 1024})
