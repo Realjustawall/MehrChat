@@ -30,7 +30,7 @@ class LanguageTests(unittest.TestCase):
         for path in Path('mehrchat').glob('*.py'):
             if path.name in ('i18n.py', 'smoke.py', 'server.py'):
                 continue
-            for node in ast.walk(ast.parse(path.read_text())):
+            for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
                 if isinstance(node, ast.Constant) and isinstance(node.value, str) and re.search('[\u0600-\u06ff]', node.value):
                     if node.value == 'فارسی':  # Language names remain recognizable in either locale.
                         continue
