@@ -30,9 +30,10 @@ def install(upgrade=False):
 def public(path):
     return subprocess.check_output(['sudo','cat',str(path)], text=True)
 
+identity = create_identity('secure_ci', 'Secure CI')
+
 async def protocol(profile):
     assert (await probe(profile))['ok'] is True
-    identity = create_identity('secure_ci', 'Secure CI')
     channel = await connect(profile['host'], profile['port'], profile['pin'], identity, public_card(identity),
                             transport='tls', ca=profile['ca'])
     try:
