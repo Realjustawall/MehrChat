@@ -6,6 +6,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from mehrchat.client import Engine
 from mehrchat.crypto import create_identity
+from mehrchat.tls import ensure_certificate
+from mehrchat.deployment import write_json
 
 
 class MemoryVault:
@@ -38,6 +40,8 @@ async def run():
         / ("MehrRelay.exe" if os.name == "nt" else "MehrRelay")
     )
     with tempfile.TemporaryDirectory() as root:
+        tls_pin = ensure_certificate(Path(root), "localhost")
+        write_json(Path(root)/"deployment.json", {"port": tcp, "tls": {"cert": str(Path(root)/"tls-cert.pem"), "key": str(Path(root)/"tls-key.pem")}})
         process = subprocess.Popen(
             [
                 str(binary),
@@ -76,7 +80,7 @@ async def run():
             a.add_contact(json.dumps(b.card), b.me)
             b.add_contact(json.dumps(a.card), a.me)
             for e in engines:
-                e.d["relays"] = [dict(host="127.0.0.1", port=tcp, pin=pin)]
+                e.d["relays"] = [dict(host="127.0.0.1", port=tcp, pin=pin, transport="tls-noise", tls_pin=tls_pin)]
                 e.running = True
                 tasks.append(asyncio.create_task(e.loop()))
             chat = a.dm_id(b.me)
@@ -87,7 +91,7 @@ async def run():
             b.delete(chat, mid)
             await until(lambda: not a.d["messages"][chat])
             print(
-                "Compiled relay Noise / bootstrap / Double Ratchet / receipt / bilateral deletion: PASS"
+                "Compiled relay TLS + Noise / bootstrap / Double Ratchet / receipt / bilateral deletion: PASS"
             )
         finally:
             for e in engines:

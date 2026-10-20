@@ -4,11 +4,14 @@ import sys
 from pathlib import Path
 
 os.environ.setdefault("KIVY_NO_ARGS", "1")
+os.environ.setdefault("KIVY_NO_FILELOG", "1")
 if sys.platform == "win32":
     os.environ.setdefault("KIVY_GL_BACKEND", "angle_sdl2")
 
 
 def run():
+    from mehrchat.privacy import disable_core_dumps
+    disable_core_dumps()
     from mehrchat.ui import MehrApp
 
     app = MehrApp()
@@ -18,6 +21,8 @@ def run():
 
         with tempfile.TemporaryDirectory() as directory:
             app.data_path = lambda: Path(directory) / "identity.mcv"
+            from mehrchat.i18n import save_language
+            save_language(Path(directory) / "language.json", os.environ.get("MEHRCHAT_SMOKE_LANGUAGE", "fa"))
             install(app, os.environ["MEHRCHAT_SMOKE_RESULT"])
             app.run()
     else:

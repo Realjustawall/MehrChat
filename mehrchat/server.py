@@ -9,15 +9,19 @@ import sqlite3
 import time
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import Thread
+from threading import Thread, Lock
 from .crypto import create_identity, public_card, check_card, verify, pack
 from .wire import accept
+from .limits import AdmissionLimiter
 
 # A 4 MiB attachment is base64 inside encrypted JSON and the ciphertext is
 # base64 again. Allow the signed 32-member/64-epoch descriptor as well.
 MAX_CIPHER = 12 * 1024 * 1024
 MAX_CONTROL_CIPHER = 4 * 1024 * 1024
 CLOCK_SKEW = 300
+MAX_USERS = 100000
+MAX_RETRACTIONS = 500000
+MAX_ROUTE_RETRACTIONS = 10000
 
 
 class Relay:
@@ -50,20 +54,29 @@ class Relay:
             tokenfile.write_text(secrets.token_urlsafe(32))
             tokenfile.chmod(0o600)
         self.admin_token = tokenfile.read_text().strip()
+        self.admin_credentials = self.root / 'admin-account.json'
+        self.admin_limiter = AdmissionLimiter(rate=0.2, burst=5, capacity=1)
+        self.admin_lock = Lock()
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL)"
         )
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS retractions (id TEXT, sender TEXT, recipient TEXT, expires INTEGER, PRIMARY KEY(id,sender,recipient))"
         )
+        self.db.execute("CREATE INDEX IF NOT EXISTS retraction_route ON retractions(sender,recipient)")
         self.db.commit()
         self.live_cards = {}
         self.active = set()
         self.connections = 0
         self.events = {}
+        self.admission = AdmissionLimiter()
+        self.global_admission = AdmissionLimiter(rate=8, burst=64, capacity=1)
 
     def register(self, card):
         b = check_card(card)
+        if (not self.db.execute("SELECT 1 FROM users WHERE id=?", (b["id"],)).fetchone()
+                and self.db.execute("SELECT count(*) FROM users").fetchone()[0] >= MAX_USERS):
+            raise ValueError("Registration capacity reached")
         try:
             with self.db:
                 self.db.execute(
@@ -107,6 +120,18 @@ class Relay:
             verified.append(cap)
         with self.db:
             for cap in verified:
+                existing = self.db.execute(
+                    "SELECT 1 FROM retractions WHERE id=? AND sender=? AND recipient=?",
+                    (cap["id"], cap["sender"], cap["to"]),
+                ).fetchone()
+                if not existing:
+                    total = self.db.execute("SELECT count(*) FROM retractions").fetchone()[0]
+                    route = self.db.execute(
+                        "SELECT count(*) FROM retractions WHERE sender=? AND recipient=?",
+                        (cap["sender"], cap["to"]),
+                    ).fetchone()[0]
+                    if total >= MAX_RETRACTIONS or route >= MAX_ROUTE_RETRACTIONS:
+                        raise ValueError("Retraction capacity reached")
                 self.db.execute(
                     "DELETE FROM queue WHERE id=? AND sender=? AND recipient=?",
                     (cap["id"], cap["sender"], cap["to"]),
@@ -124,6 +149,23 @@ class Relay:
 
     def settings(self):
         return json.loads(self.config_path.read_text())
+
+    def authenticate_admin(self, values):
+        with self.admin_lock:
+            if not self.admin_limiter.allow('admin'):
+                return False
+        if self.admin_credentials.exists():
+            from nacl.pwhash import argon2id
+            from nacl.exceptions import InvalidkeyError
+            account = json.loads(self.admin_credentials.read_text())
+            username, password = values.get('username', [''])[0], values.get('password', [''])[0]
+            if not hmac.compare_digest(username.encode(), account['username'].encode()) or len(password) > 1024:
+                return False
+            try:
+                return argon2id.verify(account['password_hash'].encode(), password.encode())
+            except (InvalidkeyError, ValueError):
+                return False
+        return hmac.compare_digest(values.get('token', [''])[0].encode(), self.admin_token.encode())
 
     def cleanup(self):
         now = time.time()
@@ -221,15 +263,20 @@ class Relay:
         return {"ok": True}
 
     async def handle(self, reader, writer):
-        if self.connections >= 64:
+        peer = writer.get_extra_info("peername")
+        address = str(peer[0]) if peer else "unknown"
+        if (self.connections >= 64 or not self.global_admission.allow("all")
+                or not self.admission.allow(address)):
             writer.close()
             return
         self.connections += 1
         user = None
         try:
             channel, card = await asyncio.wait_for(
-                accept(reader, writer, self.identity, self.register), 15
+                accept(reader, writer, self.identity, self.register, allow_probe=True), 15
             )
+            if card is None:
+                return
             user = check_card(card)["id"]
             if user in self.active:
                 user = None
@@ -312,6 +359,19 @@ class Relay:
         relay = self
 
         class Handler(BaseHTTPRequestHandler):
+            def setup(self):
+                super().setup()
+                self.connection.settimeout(5)
+
+            def end_headers(self):
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Referrer-Policy", "no-referrer")
+                super().end_headers()
+
+            def english(self):
+                from urllib.parse import parse_qs, urlsplit
+                return parse_qs(urlsplit(self.path).query).get("lang") == ["en"]
+
             def log_message(self, *_):
                 pass
 
@@ -331,6 +391,17 @@ class Relay:
 <h1>تنظیمات سرور</h1><form method="post"><p>رمز مدیریت</p><input type="password" name="token" required autocomplete="off"><p><label><input type="checkbox" name="files" value="yes">فعال‌سازی ارسال فایل</label></p><button>ذخیره</button></form><p>حداکثر حجم فایل: ۴ مگابایت</p></html>"""
                 if relay.settings()["files_enabled"]:
                     html = html.replace('value="yes"', 'value="yes" checked')
+                if relay.admin_credentials.exists():
+                    html = html.replace('<p>رمز مدیریت</p><input type="password" name="token" required autocomplete="off">', '<p>Admin username / نام کاربری مدیر</p><input name="username" required autocomplete="username"><p>Admin password / رمز مدیر</p><input type="password" name="password" required autocomplete="current-password">')
+                html += '<p><a href="/?lang=fa">فارسی</a> | <a href="/?lang=en">English</a></p>'
+                if self.english():
+                    for fa, en in {
+                        'lang="fa" dir="rtl"': 'lang="en" dir="ltr"',
+                        'مدیریت مهر': 'Mehr administration', 'تنظیمات سرور': 'Relay settings',
+                        'رمز مدیریت': 'Admin token', 'فعال‌سازی ارسال فایل': 'Enable file transfers',
+                        'ذخیره': 'Save', 'حداکثر حجم فایل: ۴ مگابایت': 'Maximum file size: 4 MiB',
+                    }.items():
+                        html = html.replace(fa, en)
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
@@ -344,14 +415,20 @@ class Relay:
             def do_POST(self):
                 from urllib.parse import parse_qs
 
-                n = int(self.headers.get("Content-Length", "0"))
+                try:
+                    n = int(self.headers.get("Content-Length", "0"))
+                except ValueError:
+                    self.send_error(400)
+                    return
                 if not 0 < n <= 4096:
                     self.send_error(400)
                     return
-                values = parse_qs(self.rfile.read(n).decode())
-                if not hmac.compare_digest(
-                    values.get("token", [""])[0], relay.admin_token
-                ):
+                try:
+                    values = parse_qs(self.rfile.read(n).decode(), max_num_fields=4)
+                except (UnicodeError, ValueError):
+                    self.send_error(400)
+                    return
+                if not relay.authenticate_admin(values):
                     self.send_error(403)
                     return
                 conf = relay.settings()
@@ -363,7 +440,7 @@ class Relay:
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
-                self.wfile.write("ذخیره شد".encode())
+                self.wfile.write(b"Saved" if self.english() else "ذخیره شد".encode())
 
         server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
         Thread(target=server.serve_forever, daemon=True).start()
@@ -372,12 +449,28 @@ class Relay:
 
 async def run(args):
     relay = Relay(args.data)
+    config_path = relay.root / 'deployment.json'
+    config = json.loads(config_path.read_text()) if config_path.exists() else {}
+    tls = config.get('tls')
+    context = None
+    tls_pin = None
+    if tls:
+        from .tls import server_context
+        from .tls import public_key_pin
+        from cryptography import x509
+        from cryptography.hazmat.primitives import serialization
+        context = server_context(tls['cert'], tls['key'])
+        tls_pin = public_key_pin(x509.load_pem_x509_certificate(Path(tls['cert']).read_bytes()).public_bytes(serialization.Encoding.DER))
+    if config.get('port'):
+        args.port = config['port']
     (relay.root / "relay-public.json").write_text(
         json.dumps(
             {
                 "transport": "Noise_NK_25519_ChaChaPoly_SHA256",
                 "port": args.port,
                 "pin": relay.pin,
+                'tls': bool(tls),
+                'tls_pin': tls_pin,
             }
         )
     )
@@ -388,7 +481,7 @@ async def run(args):
         flush=True,
     )
     relay.start_admin(args.admin_port)
-    server = await asyncio.start_server(relay.handle, args.host, args.port)
+    server = await asyncio.start_server(relay.handle, args.host, args.port, **({'ssl': context, 'ssl_handshake_timeout': 12} if context else {}))
 
     async def sweep():
         while True:
@@ -410,7 +503,12 @@ def main():
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--admin-port", type=int, default=8788)
     parser.add_argument("--data", default="relay-data")
+    parser.add_argument('--setup', action='store_true', help='Interactive Ubuntu deployment configuration')
     args = parser.parse_args()
+    if args.setup:
+        from .setup import configure
+        configure(args.data)
+        return
     try:
         asyncio.run(run(args))
     except KeyboardInterrupt:

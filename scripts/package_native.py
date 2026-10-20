@@ -12,9 +12,11 @@ files = [
     root / "dist" / ("MehrRelay.exe" if os.name == "nt" else "MehrRelay"),
     root / "deploy",
     root / "reports",
+    root / "scripts" / 'build-personalized.py',
+    root / "scripts" / 'sign-personalized.py',
 ]
 files += [
-    root / p for p in ("README.md", "README.fa.md", "SECURITY.md", "BUILD_STATUS.md", "FEATURES.fa.md")
+    root / p for p in ("README.md", "README.fa.md", "SECURITY.md", "BUILD_STATUS.md", "FEATURES.fa.md", "INSTALL.fa.md")
 ]
 if os.name == "nt":
     archive = out / (name + ".zip")

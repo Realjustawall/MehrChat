@@ -42,6 +42,8 @@ async def run():
                 public["pin"],
                 identity,
                 public_card(identity),
+                transport='tls-noise' if public.get('tls') else 'noise',
+                tls_pin=public.get('tls_pin'),
             )
             break
         except (OSError, ConnectionError):

@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from mehrchat.client import Engine
 from mehrchat.server import Relay
 from mehrchat.vault import Vault
+from mehrchat.tls import ensure_certificate, server_context
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--config", type=Path, required=True)
@@ -24,7 +25,9 @@ async def run():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         relay = Relay(root / "relay")
-        server = await asyncio.start_server(relay.handle, "127.0.0.1", 0)
+        tls_pin = ensure_certificate(root/'relay', 'localhost')
+        context = server_context(root/'relay/tls-cert.pem', root/'relay/tls-key.pem')
+        server = await asyncio.start_server(relay.handle, "127.0.0.1", 0, ssl=context, ssl_handshake_timeout=12)
         port = server.sockets[0].getsockname()[1]
         vault = Vault(
             root / "client/peer.mcv",
@@ -33,7 +36,7 @@ async def run():
             "مخاطب",
         )
         peer = Engine(vault)
-        peer.d["relays"] = [dict(host="127.0.0.1", port=port, pin=relay.pin)]
+        peer.d["relays"] = [dict(host="127.0.0.1", port=port, pin=relay.pin, transport='tls-noise', tls_pin=tls_pin)]
         peer.running = True
         task = asyncio.create_task(peer.loop())
         args.config.parent.mkdir(parents=True, exist_ok=True)
@@ -41,7 +44,7 @@ async def run():
             json.dumps(
                 dict(
                     card=peer.card,
-                    relay=dict(host=args.client_host, port=port, pin=relay.pin),
+                    relay=dict(host=args.client_host, port=port, pin=relay.pin, transport='tls-noise', tls_pin=tls_pin),
                     expected_reply=REPLY,
                 )
             )

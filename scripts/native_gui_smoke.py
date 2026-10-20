@@ -7,11 +7,14 @@ root = Path(__file__).resolve().parent.parent
 exe = root / "dist/MehrChat" / ("MehrChat.exe" if os.name == "nt" else "MehrChat")
 parser = argparse.ArgumentParser()
 parser.add_argument("--exe", type=Path, default=exe)
-exe = parser.parse_args().exe
+parser.add_argument("--language", choices=("fa", "en"), default="fa")
+args = parser.parse_args()
+exe = args.exe
 with tempfile.TemporaryDirectory() as directory:
     result = Path(directory) / "result.json"
     env = os.environ.copy()
     env["MEHRCHAT_SMOKE_TEST"] = "flow"
+    env["MEHRCHAT_SMOKE_LANGUAGE"] = args.language
     env["MEHRCHAT_SMOKE_RESULT"] = str(result)
     logfile = Path(directory) / "gui.log"
     env["MEHRCHAT_SMOKE_LOG"] = str(logfile)

@@ -1,13 +1,23 @@
 name: Native builds and startup tests
+run-name: MehrChat ${{ github.event.inputs.build_id || github.event.pull_request.title || 'standard build' }}
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      profile_b64:
+        description: 'Base64 public client profile (never private keys or passwords)'
+        required: false
+        default: ''
+      build_id:
+        description: 'Deployment build identifier'
+        required: false
+        default: ''
 permissions:
   contents: read
   actions: read
 concurrency:
   group: mehrchat-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   native:
     strategy:
@@ -23,6 +33,15 @@ jobs:
           python-version: '3.12'
           cache: pip
       - run: python -m pip install -r requirements.txt pyinstaller==6.22.3
+      - name: Prepare validated dedicated client profile
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const value = context.payload.inputs?.profile_b64 || '';
+            if (value.length > 12000) throw new Error('Profile too large');
+            if (value) core.setSecret(value);
+            core.exportVariable('PROFILE_B64', value);
+      - run: python scripts/apply_profile.py
       - name: Windows graphics dependencies
         if: runner.os == 'Windows'
         run: python -m pip install kivy_deps.sdl2 kivy_deps.angle kivy_deps.glew
@@ -32,7 +51,20 @@ jobs:
           mkdir -p reports
           set -o pipefail
           python -m unittest discover -s tests -v 2>&1 | tee reports/tests.txt
-      - name: Build native relay
+      - name: Test initial and dedicated connection screens
+        # Includes source-level first-run GUI tests against a disposable TLS server.
+        # These do not reuse the smoke bypass used by compiled account-flow tests.
+        if: success()
+        shell: bash
+        run: |
+          if [ '${{ runner.os }}' = 'Linux' ]; then
+            xvfb-run -a python scripts/connection_gui_test.py > reports/connection-standard.txt 2>&1
+            xvfb-run -a python scripts/connection_gui_test.py --dedicated > reports/connection-dedicated.txt 2>&1
+          else
+            python scripts/connection_gui_test.py > reports/connection-standard.txt 2>&1
+            python scripts/connection_gui_test.py --dedicated > reports/connection-dedicated.txt 2>&1
+          fi
+      - name: Build native relay executable
         shell: bash
         run: python scripts/build.py server > reports/build-relay.txt 2>&1
       - name: Build native client
@@ -43,6 +75,9 @@ jobs:
           else
             KIVY_GL_BACKEND=angle_sdl2 python scripts/build.py client > reports/build-client.txt 2>&1
           fi
+      - name: Test packaged Ubuntu setup wizard
+        if: runner.os == 'Linux'
+        run: python scripts/verify_setup_binary.py > reports/compiled-setup-test.txt 2>&1
       - name: Test compiled relay with real clients
         shell: bash
         run: python tests/binary_smoke.py > reports/compiled-relay-test.txt 2>&1
@@ -54,6 +89,14 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: python scripts/native_gui_smoke.py > reports/compiled-gui-test.txt 2>&1
+      - name: Test English interface and language switching
+        shell: bash
+        run: |
+          if [ '${{ runner.os }}' = 'Linux' ]; then
+            xvfb-run -a python scripts/native_gui_smoke.py --language en > reports/compiled-gui-en-test.txt 2>&1
+          else
+            python scripts/native_gui_smoke.py --language en > reports/compiled-gui-en-test.txt 2>&1
+          fi
       - name: Verify desktop installation and identity retention
         shell: bash
         run: |
@@ -140,6 +183,18 @@ jobs:
           sed -i 's/android.archs = .*/android.archs = ${{ matrix.arch }}/' buildozer.spec
           printf '\n' >> buildozer.spec
           echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+      - name: Prepare validated dedicated client profile
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const value = context.payload.inputs?.profile_b64 || '';
+            if (value.length > 12000) throw new Error('Profile too large');
+            if (value) core.setSecret(value);
+            core.exportVariable('PROFILE_B64', value);
+      - name: Embed public deployment profile
+        run: |
+          python -m pip install PyNaCl==1.6.2 noiseprotocol==0.3.1 cryptography==50.0.2 certifi==2026.10.19
+          python scripts/apply_profile.py
       - uses: actions/cache/restore@v4
         id: android-cache
         with:
@@ -226,7 +281,7 @@ jobs:
           path: reports/
   candidate:
     needs: [native, android]
-    if: github.actor == github.repository_owner
+    if: github.actor == github.repository_owner && !github.event.inputs.profile_b64
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -237,19 +292,19 @@ jobs:
           pattern: MehrChat-*
           path: candidate
           merge-multiple: true
-      - name: Create reviewable draft with verified binaries
+      - name: Publish tested prerelease with verified binaries
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const tag = `v0.2.1-rc1-ci.${context.runNumber}`;
+            const tag = `v0.4.0-rc1-ci.${context.runNumber}`;
             const commit = context.payload.pull_request?.head.sha || context.sha;
             const release = await github.rest.repos.createRelease({
               ...context.repo, tag_name: tag, target_commitish: commit,
-              name: `MehrChat 0.2.1-rc1 — CI ${context.runNumber}`,
-              draft: true, prerelease: true,
-              body: `Native Windows/Linux and Android candidate.\n\nSource: ${commit}\nValidation: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\nRelease APKs are unsigned and require the owner's signing key. Debug APKs are for testing. This candidate has not received an independent security audit.`
+              name: `MehrChat 0.4.0-rc1 — CI ${context.runNumber}`,
+              draft: false, prerelease: true,
+              body: `Tested Windows/Linux clients and relay servers, plus Android test and unsigned release APKs.\n\nSource: ${commit}\nValidation: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\nRelease APKs are unsigned and require the owner's signing key. Debug APKs are for testing. This candidate has not received an independent security audit.`
             });
             for (const file of fs.readdirSync('candidate')) {
               const full = path.join('candidate', file);
@@ -260,4 +315,4 @@ jobs:
                 headers: {'content-type': 'application/octet-stream'}
               });
             }
-            await core.summary.addLink('Validated draft candidate', release.data.html_url).write();
+            await core.summary.addLink('Tested prerelease', release.data.html_url).write();

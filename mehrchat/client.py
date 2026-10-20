@@ -21,7 +21,7 @@ from .crypto import (
     enc,
     dec,
 )
-from .wire import connect
+from .wire import connect, validate_proxy, validate_destination
 
 
 def safe_filename(name):
@@ -48,10 +48,14 @@ def safe_filename(name):
 
 
 class Engine:
-    def __init__(self, vault):
+    def __init__(self, vault, locked_relay=None):
         self.vault = vault
         self.d = vault.data
         self.identity = self.d["identity"]
+        self.locked_relay = copy.deepcopy(locked_relay)
+        if locked_relay:
+            from .deployment import validate_relay
+            self.d['relays'] = [validate_relay(locked_relay)]
         self.card = public_card(self.identity)
         self.me = self.card["body"]["id"]
         self.lock = threading.RLock()
@@ -181,12 +185,37 @@ class Engine:
             self.send(chat, "گروه ساخته شد", kind="group")
         return chat
 
+    def cancel_removed_deliveries(self, chat, descriptor):
+        """Do not flush previously queued group content to removed recipients.
+
+        Pairwise sessions may also serve private chats, so do not reset or erase
+        them. Previously delivered copies cannot be revoked by this operation.
+        """
+        members = set(descriptor["body"]["members"])
+        def removed(peer):
+            return self.me not in members or peer not in members
+        abandoned = [p for p in self.d["outbox"] if p["chat"] == chat
+                     and removed(p["item"]["body"]["to"])
+                     and p["item"]["body"]["kind"] != "group_update"]
+        for entry in abandoned:
+            cap = entry["item"]["body"].get("delete_cap")
+            if cap:
+                body = signed(self.identity, dict(v=2, kind="retract", id=uuid.uuid4().hex,
+                    sender=self.me, to=self.me, expires=int(time.time()) + 90 * 86400,
+                    proofs=[{"card": self.card, "cap": cap}]))
+                self.d["pending_retractions"]["membership:" + entry["item"]["body"]["id"]] = {"item": body, "routes": []}
+        self.d["outbox"] = [p for p in self.d["outbox"] if p not in abandoned]
+        for peer, entries in self.d["pending_secure"].items():
+            if removed(peer):
+                self.d["pending_secure"][peer] = [p for p in entries if p["chat"] != chat or p["kind"] == "group_update"]
+
     def update_group(self, chat, name, members):
         with self.transaction():
             old = self.d["groups"][chat]
             group = self.groups.make(name, members, chat)
             recipients = set(old["body"]["members"]) | set(group["body"]["members"])
             self.d["groups"][chat] = group
+            self.cancel_removed_deliveries(chat, group)
             now = int(time.time())
             payload = dict(
                 id=uuid.uuid4().hex,
@@ -225,6 +254,7 @@ class Engine:
                 raise ValueError("زمان نامعتبر است")
             descriptor = self.descriptor(chat)
             _, members, _ = self.validate_chat(descriptor, self.me)
+            self.groups.require_verified(descriptor)
             if len(text) > 16000:
                 raise ValueError("پیام طولانی است")
             now = int(time.time())
@@ -355,7 +385,11 @@ class Engine:
                 payload["chat"], sender, payload["kind"] == "group_update"
             )
             if group:
+                known = self.d["groups"].get(chat)
+                if known is None and sender != payload["chat"]["body"]["owner"]:
+                    raise ValueError("Only the creator can introduce a group")
                 self.d["groups"][chat] = payload["chat"]
+                self.cancel_removed_deliveries(chat, payload["chat"])
             if payload["kind"] == "group_update":
                 if not group or sender != payload["chat"]["body"]["owner"]:
                     raise ValueError("Invalid group update")
@@ -539,10 +573,35 @@ class Engine:
             self.secure.reset(peer)
         self.notify()
 
+    def configure_privacy(self, proxy, auto_lock=60):
+        proxy = validate_proxy(proxy)
+        if auto_lock not in (30, 60, 300):
+            raise ValueError("زمان نامعتبر است")
+        # Stop every old channel before changing policy. No direct channel may
+        # remain alive after required-proxy mode has been enabled.
+        was = self.running
+        self.stop()
+        if hasattr(self, "thread"):
+            self.thread.join(timeout=15)
+            if self.thread.is_alive():
+                raise ValueError("در حال بستن اتصال")
+        try:
+            with self.transaction():
+                self.d["proxy"] = proxy
+                self.d["auto_lock"] = auto_lock
+        finally:
+            if was:
+                self.start()
+
     def configure_relays(self, relays):
+        if self.locked_relay and relays != [self.locked_relay]:
+            raise ValueError('Dedicated build connection is fixed')
         if len(relays) > 5:
             raise ValueError("حداکثر ۵ سرور")
         for r in relays:
+            from .deployment import validate_relay
+            validate_relay(r)
+            validate_destination(r["host"], r["port"])
             if (
                 not isinstance(r["host"], str)
                 or not 1 <= int(r["port"]) <= 65535
@@ -555,10 +614,12 @@ class Engine:
             self.thread.join(timeout=15)
         if hasattr(self, "thread") and self.thread.is_alive():
             raise ValueError("در حال بستن اتصال")
-        with self.transaction():
-            self.d["relays"] = relays
-        if was:
-            self.start()
+        try:
+            with self.transaction():
+                self.d["relays"] = copy.deepcopy(relays)
+        finally:
+            if was:
+                self.start()
 
     def update_profile(self, username, name):
         from .crypto import create_identity
@@ -626,6 +687,9 @@ class Engine:
                     relay["pin"],
                     self.identity,
                     self.card,
+                    proxy=self.d.get("proxy"),
+                    transport=relay.get('transport', 'noise'),
+                    tls_pin=relay.get('tls_pin'),
                 )
                 self.connected[route] = False
                 self.connection_errors.pop(route, None)
@@ -753,6 +817,8 @@ class Engine:
             except Exception as exc:
                 if isinstance(exc, ValueError) and str(exc) == "این نام کاربری قبلاً ثبت شده است":
                     self.connection_errors[route] = "نام کاربری در سرور تکراری است"
+                elif self.d.get("proxy") is not None:
+                    self.connection_errors[route] = "اتصال پراکسی برقرار نشد"
             finally:
                 self.connected.pop(route, None)
                 self.files_enabled = bool(self.connected) and all(
