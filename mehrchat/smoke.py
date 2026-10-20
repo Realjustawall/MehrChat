@@ -45,6 +45,20 @@ def install(app, result_path):
         app.choose_document = picker
         assert setup_backup.getvalue().startswith(b"MEHRVAULT1\0")
         assert app.engine.d["backup_last_at"] > 0 and reminder not in app.open_popups
+        if platform != "android":
+            failed_output = app.vault_path.parent / "failed-export.mcv"
+
+            def fail_export(stream):
+                stream.write(b"partial encrypted output")
+                raise OSError("simulated disk full")
+
+            app.choose_document("save", "failed-export.mcv", fail_export)
+            widgets = list(app.open_popups[-1].content.walk())
+            next(w for w in widgets if isinstance(w, TextInput)).text = str(failed_output)
+            next(w for w in widgets if isinstance(w, Button) and w.text == fa("تأیید")).dispatch("on_release")
+            assert not failed_output.exists(), "The GUI must remove its partial export"
+            for popup in list(app.open_popups):
+                popup.dismiss()
         peer = (
             network["card"]
             if network

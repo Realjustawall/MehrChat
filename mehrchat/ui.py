@@ -1169,11 +1169,18 @@ class MehrApp(App):
         pop = self.dialog("ذخیره فایل" if mode == "save" else "بازکردن فایل", box)
 
         def execute():
-            with Path(path.text).expanduser().open(
-                "xb" if mode == "save" else "rb"
-            ) as stream:
-                stream.display_name = Path(path.text).name
-                callback(stream)
+            chosen = Path(path.text).expanduser()
+            stream = chosen.open("xb" if mode == "save" else "rb")
+            try:
+                with stream:
+                    if mode == "save" and os.name != "nt":
+                        os.fchmod(stream.fileno(), 0o600)
+                    stream.display_name = chosen.name
+                    callback(stream)
+            except BaseException:
+                if mode == "save":
+                    chosen.unlink(missing_ok=True)
+                raise
             pop.dismiss()
 
         box.add_widget(button("تأیید", lambda: self.guarded(execute)))
