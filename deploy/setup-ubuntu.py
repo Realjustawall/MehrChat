@@ -81,7 +81,10 @@ def main():
     if not admin or len(admin) > 64 or len(password) < 14:
         sys.exit('Invalid administrator credentials; nothing was changed.')
     # The default is local interface discovery, never an untrusted remote HTTP IP service.
-    detected = socket.gethostbyname(socket.gethostname())
+    try:
+        detected = socket.gethostbyname(socket.gethostname())
+    except OSError:
+        detected = '127.0.0.1'
     try:
         addresses = json.loads(subprocess.check_output(['ip', '-j', '-4', 'addr'], text=True))
         detected = next(info['local'] for dev in addresses for info in dev.get('addr_info', []) if info.get('scope') == 'global')

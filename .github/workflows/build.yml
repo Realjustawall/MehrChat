@@ -7,7 +7,7 @@ permissions:
   actions: read
 concurrency:
   group: mehrchat-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   native:
     strategy:
@@ -101,6 +101,10 @@ jobs:
             Unregister-ScheduledTask -TaskName MehrChatRelay -Confirm:$false -ErrorAction SilentlyContinue
             Remove-NetFirewallRule -DisplayName 'MehrChat Relay TCP' -ErrorAction SilentlyContinue
           }
+      - name: Verify interactive Ubuntu TLS installation and upgrade
+        if: runner.os == 'Linux'
+        shell: bash
+        run: python scripts/verify_secure_ubuntu.py > reports/secure-ubuntu-installation.txt 2>&1
       - name: Package verified executables
         run: python scripts/package_native.py
       - uses: actions/upload-artifact@v4
