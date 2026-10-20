@@ -221,7 +221,11 @@ class MehrApp(App):
             on_touch_down=lambda *_: self.activity(),
             on_key_down=lambda *_: self.activity(),
         )
-        Window.bind(on_resize=self.resize_layout)
+        # Windows can dispatch on_resize before its size properties and the
+        # root widget are updated. Re-evaluate after the layout tick as well.
+        self._resize_trigger = Clock.create_trigger(self.resize_layout, 0)
+        Window.bind(on_resize=lambda *_: self._resize_trigger(), size=lambda *_: self._resize_trigger())
+        self.rootbox.bind(size=lambda *_: self._resize_trigger())
         self.vault_path = self.data_path()
         self.language_path = self.vault_path.parent / "language.json"
         load_language(self.language_path)
