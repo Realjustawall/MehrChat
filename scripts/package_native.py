@@ -14,7 +14,7 @@ files = [
     root / "reports",
 ]
 files += [
-    root / p for p in ("README.md", "README.fa.md", "SECURITY.md", "BUILD_STATUS.md")
+    root / p for p in ("README.md", "README.fa.md", "SECURITY.md", "BUILD_STATUS.md", "FEATURES.fa.md")
 ]
 if os.name == "nt":
     archive = out / (name + ".zip")

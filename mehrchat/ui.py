@@ -289,6 +289,22 @@ class MehrApp(App):
         self.engine.changed = lambda: Clock.schedule_once(lambda *_: self.refresh())
         self.engine.start()
         self.shell()
+        if not vault.data.get("backup_last_at"):
+            self.backup_reminder()
+
+    def backup_reminder(self):
+        box = BoxLayout(orientation="vertical", spacing=dp(12), padding=dp(12))
+        text = (
+            "برای بازیابی حساب، پشتیبان رمزگذاری‌شده را خارج از برنامه ذخیره کنید.\n"
+            "با حذف برنامه در اندروید، کلید داخل برنامه پاک می‌شود.\n"
+            "رمز پشتیبان را نگه دارید؛ بازیابی بدون آن ممکن نیست."
+        )
+        notice = label(text, halign="right", valign="middle")
+        notice.bind(size=lambda w, value: setattr(w, "text_size", value))
+        box.add_widget(notice)
+        pop = self.dialog("پشتیبان حساب", box)
+        box.add_widget(button("ذخیره پشتیبان", lambda: (pop.dismiss(), self.backup_dialog())))
+        box.add_widget(button("بعداً", pop.dismiss))
 
     def shell(self):
         self.rootbox.clear_widgets()
@@ -493,6 +509,10 @@ class MehrApp(App):
             self.chatlist.add_widget(row)
 
     def select(self, cid):
+        if cid != self.chat:
+            self.remember_draft()
+            with self.engine.lock:
+                self.compose.text = self.engine.d.get("drafts", {}).get(cid, "")
         self.chat = cid
         self._view_signature = None
         self.view_limit = 100
@@ -504,6 +524,15 @@ class MehrApp(App):
             self.mainpane.opacity = 1
             self.mainpane.disabled = False
         self.refresh()
+
+    def remember_draft(self):
+        if self.engine and self.chat and hasattr(self, "compose"):
+            with self.engine.transaction():
+                drafts = self.engine.d.setdefault("drafts", {})
+                if self.compose.text:
+                    drafts[self.chat] = self.compose.text
+                else:
+                    drafts.pop(self.chat, None)
 
     def refresh(self):
         if not self.engine or not hasattr(self, "messagebox"):
@@ -626,7 +655,9 @@ class MehrApp(App):
             return
 
         def action():
-            self.engine.send(self.chat, self.compose.text)
+            with self.engine.transaction():
+                self.engine.send(self.chat, self.compose.text)
+                self.engine.d.setdefault("drafts", {}).pop(self.chat, None)
             self.compose.text = ""
             self.refresh()
 
@@ -720,6 +751,9 @@ class MehrApp(App):
             label("حذف خودکار پیام‌های جدید", size_hint_y=None, height=dp(40))
         )
         chat = self.chat
+        current_ttl = self.engine.d.get("chat_ttl", {}).get(
+            chat, self.engine.d.get("ttl", 86400)
+        )
         for title, seconds in [
             ("۱ ساعت", 3600),
             ("۱ روز", 86400),
@@ -732,7 +766,7 @@ class MehrApp(App):
                     self.engine.d.setdefault("chat_ttl", {})[chat] = value
                 pop.dismiss()
 
-            box.add_widget(button(title, ttl))
+            box.add_widget(button(title + (" ✓" if current_ttl == seconds else ""), ttl))
         if chat in self.engine.d["groups"]:
             group = self.engine.d["groups"][chat]["body"]
             for peer in group["members"]:
@@ -948,9 +982,17 @@ class MehrApp(App):
             pop.dismiss()
             self.refresh()
 
-        box.add_widget(button("حذف برای همه", lambda: self.guarded(delete)))
+        if chat not in self.engine.d["groups"] or message["author"] == self.engine.me:
+            box.add_widget(button("حذف برای همه", lambda: self.guarded(delete)))
         if message["kind"] == "file":
-            from .crypto import dec
+            engine = self.engine
+
+            def save_file(stream):
+                if self.engine is not engine:
+                    raise ValueError("حساب قفل شده است")
+                # Recheck at the time the picker returns, not when the menu opened.
+                with engine.lock:
+                    stream.write(engine.read_file(chat, mid))
 
             box.add_widget(
                 button(
@@ -958,7 +1000,7 @@ class MehrApp(App):
                     lambda: self.choose_document(
                         "save",
                         Path(message["filename"]).name,
-                        lambda f: f.write(dec(message["file"])),
+                        save_file,
                     ),
                 )
             )
@@ -985,10 +1027,17 @@ class MehrApp(App):
         self.choose_document("open", "file", load)
 
     def backup_dialog(self):
+        engine = self.engine
+
         def save(f):
-            with self.engine.lock:
-                self.engine.vault.save()
+            if self.engine is not engine:
+                raise ValueError("حساب قفل شده است")
+            with engine.lock:
+                engine.vault.save()
                 f.write(self.vault_path.read_bytes())
+                f.flush()
+                with engine.transaction():
+                    engine.d["backup_last_at"] = int(time.time())
 
         self.choose_document("save", "mehr-backup.mcv", save)
 
@@ -998,27 +1047,19 @@ class MehrApp(App):
             return
 
         def load(f):
-            raw = f.read(128 * 1024 * 1024)
+            raw = f.read(128 * 1024 * 1024 + 1)
+            if len(raw) > 128 * 1024 * 1024:
+                raise ValueError("حجم پشتیبان بیش از حد مجاز است")
             box = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
             pw = field("رمز پشتیبان", password=True)
             box.add_widget(pw)
             pop = self.dialog("بازیابی پشتیبان", box)
 
             def restore():
-                # Verify in app-private staging before publishing a restored vault.
-                temp = self.vault_path.with_suffix(".restore")
-                temp.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-                try:
-                    temp.write_bytes(raw)
-                    temp.chmod(0o600)
-                    vault = Vault(temp, pw.text)
-                    os.replace(temp, self.vault_path)
-                    vault.path = self.vault_path
-                    pw.text = ""
-                    pop.dismiss()
-                    self.enter(vault)
-                finally:
-                    temp.unlink(missing_ok=True)
+                vault = Vault.restore_bytes(raw, self.vault_path, pw.text)
+                pw.text = ""
+                pop.dismiss()
+                self.enter(vault)
 
             box.add_widget(button("بازیابی", lambda: self.guarded(restore)))
 
@@ -1123,6 +1164,7 @@ class MehrApp(App):
         if not self.engine:
             return
         engine = self.engine
+        self.remember_draft()
         engine.stop()
         if hasattr(engine, "thread"):
             engine.thread.join(timeout=5)

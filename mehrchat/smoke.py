@@ -2,7 +2,7 @@
 Always uses a temporary vault; never reads the interactive user's account.
 """
 
-import json, os, time
+import io, json, os, time
 from pathlib import Path
 from kivy.clock import Clock
 from .crypto import create_identity, public_card
@@ -30,6 +30,7 @@ def install(app, result_path):
             raise AssertionError("GUI login timed out")
         if app.engine is None:
             return True
+        assert app.open_popups, "New accounts must be shown the external backup reminder"
         peer = (
             network["card"]
             if network
@@ -54,8 +55,17 @@ def install(app, result_path):
         app.compose.text = TEXT
         app.send()
         assert any(m.get("text") == TEXT for m in app.engine.d["messages"][chat])
+        private_draft = "پیش‌نویس خصوصی"
+        group_draft = "پیش‌نویس گروه"
+        app.compose.text = private_draft
         group = app.engine.create_group("گروه آزمون", [peer["body"]["id"]])
         app.select(group)
+        assert app.compose.text == "", "A draft must never move to another recipient"
+        app.compose.text = group_draft
+        app.select(chat)
+        assert app.compose.text == private_draft
+        app.select(group)
+        assert app.compose.text == group_draft
         steps = [
             app.settings,
             app.profile_dialog,
@@ -89,6 +99,35 @@ def install(app, result_path):
                 assert app.engine.me == identity and any(
                     m.get("text") == TEXT for m in app.engine.d["messages"][chat]
                 )
+                assert app.engine.d["drafts"][chat] == private_draft
+                assert app.engine.d["drafts"][group] == group_draft
+                # Exercise the actual UI backup callback and restore dialog. Only
+                # this smoke launcher's temporary account is removed, never user data.
+                backup = io.BytesIO()
+                original_picker = app.choose_document
+                app.choose_document = lambda mode, name, callback: callback(backup)
+                app.backup_dialog()
+                raw_backup = backup.getvalue()
+                assert app.engine.d["backup_last_at"] > 0
+                assert TEXT.encode() not in raw_backup
+                app.lock_account()
+                app.vault_path.unlink()
+                app.choose_document = lambda mode, name, callback: callback(io.BytesIO(raw_backup))
+                app.restore_dialog()
+                from kivy.uix.textinput import TextInput
+                from kivy.uix.button import Button
+                from .ui import fa
+
+                restore_popup = app.open_popups[-1]
+                widgets = list(restore_popup.content.walk())
+                next(w for w in widgets if isinstance(w, TextInput) and w.password).text = PASSWORD
+                next(w for w in widgets if isinstance(w, Button) and w.text == fa("بازیابی")).dispatch("on_release")
+                app.choose_document = original_picker
+                assert app.engine is not None and app.engine.me == identity
+                assert app.engine.d["drafts"][chat] == private_draft
+                assert any(m.get("text") == TEXT for m in app.engine.d["messages"][chat])
+                for popup in list(app.open_popups):
+                    popup.dismiss()
 
                 def finish(*_):
                     screenshot = os.environ.get("MEHRCHAT_SMOKE_SCREENSHOT")
@@ -103,6 +142,9 @@ def install(app, result_path):
                         vault_encrypted=True,
                         lock_unlock=True,
                         identity_preserved=True,
+                        backup_reminder=True,
+                        encrypted_backup_restore_dialog=True,
+                        drafts_isolated_and_restored=True,
                     )
                     if network:
                         result["tcp_noise_e2ee_request_reply"] = True

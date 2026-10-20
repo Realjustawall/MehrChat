@@ -63,7 +63,8 @@ with zipfile.ZipFile(args.apk) as z:
         assert any(n in names for n in ("main.py", "main.pyc"))
         assert "assets/Vazirmatn-Regular.ttf" in names
         assert not any(
-            Path(n).name in ("identity.mcv", "transport-key.json", "admin-token.txt")
+            Path(n).name in ("transport-key.json", "admin-token.txt", "signing-password.txt")
+            or Path(n).suffix.lower() in (".mcv", ".restore", ".sqlite", ".p12", ".pfx", ".jks", ".keystore")
             for n in names
         )
         env = t.extractfile("p4a_env_vars.txt").read().decode()

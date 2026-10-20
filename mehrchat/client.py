@@ -490,15 +490,25 @@ class Engine:
             if changed or before != len(self.d["outbox"]):
                 self.notify()
 
-    def export_file(self, chat, mid, destination):
-        with self.transaction():
-            msg = next(m for m in self.d["messages"][chat] if m["id"] == mid)
+    def read_file(self, chat, mid):
+        with self.lock:
+            msg = next(
+                (m for m in self.d.get("messages", {}).get(chat, []) if m["id"] == mid),
+                None,
+            )
+            if msg is None or msg["kind"] != "file":
+                raise ValueError("فایل در دسترس نیست")
             if msg["expires"] <= time.time():
                 raise ValueError("پیام منقضی شده است")
+            return dec(msg["file"])
+
+    def export_file(self, chat, mid, destination):
+        with self.lock:
+            raw = self.read_file(chat, mid)
             path = Path(destination)
             # Explicit chosen destination; never auto-open or trust received filenames.
             with path.open("xb") as f:
-                f.write(dec(msg["file"]))
+                f.write(raw)
             return path
 
     def retract(self, chat, mid):
