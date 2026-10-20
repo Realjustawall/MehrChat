@@ -29,6 +29,7 @@ def validate_profile(value):
 def tls_context(ca=""):
     context = ssl.create_default_context()
     context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.verify_flags |= ssl.VERIFY_X509_STRICT
     context.load_verify_locations(cafile=certifi.where())
     if ca:
         context.load_verify_locations(cadata=ca)
