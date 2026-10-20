@@ -70,6 +70,10 @@ jobs:
           trap 'sudo systemctl disable --now mehr-relay' EXIT
           sudo systemctl is-active --quiet mehr-relay
           sudo -E "$(command -v python)" scripts/verify_installed_relay.py /var/lib/mehrchat > reports/installed-service-test.txt
+          pin_before=$(sudo sha256sum /var/lib/mehrchat/relay-public.json)
+          sudo bash deploy/install-ubuntu-offline.sh
+          sudo -E "$(command -v python)" scripts/verify_installed_relay.py /var/lib/mehrchat > reports/installed-service-upgrade-test.txt
+          test "$pin_before" = "$(sudo sha256sum /var/lib/mehrchat/relay-public.json)"
       - name: Verify Windows Server offline task installation
         if: runner.os == 'Windows'
         shell: pwsh
@@ -78,6 +82,12 @@ jobs:
             & ./deploy/install-windows-relay.ps1
             python scripts/verify_installed_relay.py "$env:ProgramData/MehrRelay" > reports/installed-service-test.txt
             if ($LASTEXITCODE -ne 0) { throw 'Installed Windows relay failed its protocol test' }
+            $pinBefore=(Get-Content "$env:ProgramData/MehrRelay/relay-public.json" -Raw | ConvertFrom-Json).pin
+            & ./deploy/install-windows-relay.ps1
+            python scripts/verify_installed_relay.py "$env:ProgramData/MehrRelay" > reports/installed-service-upgrade-test.txt
+            if ($LASTEXITCODE -ne 0) { throw 'Upgraded Windows relay failed its protocol test' }
+            $pinAfter=(Get-Content "$env:ProgramData/MehrRelay/relay-public.json" -Raw | ConvertFrom-Json).pin
+            if ($pinBefore -ne $pinAfter) { throw 'Relay upgrade changed the pinned server identity' }
           } finally {
             Stop-ScheduledTask -TaskName MehrChatRelay -ErrorAction SilentlyContinue
             Unregister-ScheduledTask -TaskName MehrChatRelay -Confirm:$false -ErrorAction SilentlyContinue

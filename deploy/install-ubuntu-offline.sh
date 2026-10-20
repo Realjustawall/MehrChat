@@ -29,6 +29,7 @@ UMask=0077
 WantedBy=multi-user.target
 UNIT
 systemctl daemon-reload
-systemctl enable --now mehr-relay
+systemctl enable mehr-relay
+systemctl restart mehr-relay
 echo 'Open TCP 8787. Pin: /var/lib/mehrchat/relay-public.json'
 echo 'Admin panel on server: http://127.0.0.1:8788'

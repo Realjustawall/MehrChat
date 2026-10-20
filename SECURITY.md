@@ -20,6 +20,8 @@ Visible relay metadata: IP, timing, size, sender/recipient identifiers, kind and
 
 Admin HTTP is loopback-only with random token. Never expose it publicly. The message listener intentionally binds public interfaces; use supplied service permissions and host firewall. Multi-relay usernames are independent. Background push, multi-device sync, calls and large-file streaming are outside this version.
 
+The Windows installer runs the relay as limited Local Service (SID S-1-5-19), with read/execute access to the installed executable and modify access to its protected data directory. It does not run as SYSTEM. Ubuntu uses a dedicated service user with NoNewPrivileges and read-only system protection. Reinstallation restarts the installed process and preserves its transport key; CI verifies a second install, an authenticated connection and unchanged public pin.
+
 Desktop uninstallation preserves the external vault path. Android uninstall deletes private data: an explicit external encrypted backup is required. No recovery backdoor exists.
 
 Backup restoration authenticates and validates basic account structure before publication, takes the destination account's exclusive lock and retains it for the restored session. Existing accounts are never overwritten. A failed password attempt releases its lock explicitly. Desktop backup export uses exclusive creation and removes partial output on write failure. Password changes invalidate the backup reminder marker; old backups retain their old password. Encrypted per-chat drafts are isolated when switching recipients and saved before lock. File export rechecks the live account, message existence and expiry after the document picker returns.
