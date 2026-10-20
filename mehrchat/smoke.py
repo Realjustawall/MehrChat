@@ -5,7 +5,7 @@ Always uses a temporary vault; never reads the interactive user's account.
 import io, json, os, time
 from pathlib import Path
 from kivy.clock import Clock
-from kivy.core.window import Window
+from kivy.core.image import Image as CoreImage
 from kivy.uix.button import Button
 from kivy.uix.checkbox import CheckBox
 from kivy.uix.textinput import TextInput
@@ -186,10 +186,10 @@ def install(app, result_path):
                     assert before == tuple(app.chatlist.children), "Unchanged status must not rebuild the chat list"
                     screenshot = os.environ.get("MEHRCHAT_SMOKE_SCREENSHOT")
                     if screenshot:
-                        captured = Window.screenshot(name=screenshot)
-                        assert captured and Path(captured).is_file()
-                        if Path(captured).resolve() != Path(screenshot).resolve():
-                            os.replace(captured, screenshot)
+                        app.root.export_to_png(screenshot)
+                        pixels = CoreImage(screenshot).texture.pixels
+                        colors = {pixels[i:i + 3] for i in range(0, len(pixels), 4 * 37)}
+                        assert len(colors) > 32, "The captured UI must not be blank"
                     result = dict(
                         account_creation=True,
                         compiled_double_ratchet=True,
