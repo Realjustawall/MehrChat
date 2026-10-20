@@ -465,6 +465,8 @@ class MehrApp(App):
         column.add_widget(self.connection_status)
         column.add_widget(self.connectbutton)
         column.add_widget(button('English' if language()=='fa' else 'فارسی', self.change_language, background_color=PANEL))
+        outer.bind(width=lambda _, width: setattr(column, 'width', max(dp(1), min(width-dp(48), dp(440)))))
+        self.connection_panel = column
         outer.add_widget(column); outer.add_widget(Label())
         self.rootbox.add_widget(outer)
 
@@ -506,6 +508,8 @@ class MehrApp(App):
                     self.connection_ready = False
                     self.connection_screen()
                 wrap.add_widget(button(tr('تغییر اتصال'),change_connection,background_color=PANEL))
+        frame.bind(width=lambda _, width: setattr(scroll, 'width', max(dp(1), min(width-dp(48), dp(420)))))
+        self.unlock_panel = scroll
         scroll.add_widget(wrap); frame.add_widget(scroll); frame.add_widget(Label())
         self.rootbox.add_widget(frame)
 

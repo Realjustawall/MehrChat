@@ -43,7 +43,17 @@ with tempfile.TemporaryDirectory() as directory:
     app=MehrApp();app.data_path=lambda:root/'client/identity.mcv'
     Window.size=(390,760)
     started=time.monotonic()
+    def check_bounds(panel):
+        assert panel.x >= -1 and panel.right <= app.root.width+1, 'Pre-login panel overflow'
+    def resize_connection(*_):
+        Window.size=(900,760)
+        Clock.schedule_once(narrow_connection,0.15)
+    def narrow_connection(*_):
+        check_bounds(app.connection_panel)
+        Window.size=(390,760)
+        Clock.schedule_once(click,0.15)
     def click(*_):
+        check_bounds(app.connection_panel)
         assert not app.connection_ready and app.engine is None and not hasattr(app,'password')
         if dedicated:
             assert not any(isinstance(w,TextInput) for w in app.root.walk())
@@ -73,9 +83,18 @@ with tempfile.TemporaryDirectory() as directory:
         if state.get('screenshot'):
             path=Path(state['screenshot'])
             app.root.export_to_png(str(path.with_name(path.stem+'-login.png')))
-        print('Live connection screen -> authenticated TLS + Noise -> login, without account creation: PASS')
-        app.stop();return False
-    Clock.schedule_once(click,0.5)
+        Window.size=(900,760)
+        Clock.schedule_once(narrow_login,0.15)
+        return False
+    def narrow_login(*_):
+        check_bounds(app.unlock_panel)
+        Window.size=(360,640)
+        Clock.schedule_once(done,0.15)
+    def done(*_):
+        check_bounds(app.unlock_panel)
+        print('Live connection screen -> authenticated TLS + Noise -> login, no account creation; responsive panels: PASS')
+        app.stop()
+    Clock.schedule_once(resize_connection,0.5)
     try:app.run()
     finally:
         state['loop'].call_soon_threadsafe(state['stop'].set)
