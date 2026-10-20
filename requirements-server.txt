@@ -1,3 +1,4 @@
 PyNaCl==1.6.2
+certifi==2026.10.19
 noiseprotocol==0.3.1
 cryptography==50.0.2

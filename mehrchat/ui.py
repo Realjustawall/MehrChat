@@ -1,4 +1,5 @@
 import json
+import asyncio
 import os
 from pathlib import Path
 import tempfile
@@ -17,7 +18,8 @@ if platform != "android":
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.window import Window
-from kivy.graphics import Color, RoundedRectangle, InstructionGroup
+from kivy.graphics import Color, RoundedRectangle, InstructionGroup, Line, Ellipse
+from kivy.uix.floatlayout import FloatLayout
 from kivy.metrics import dp
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
@@ -33,6 +35,8 @@ from .client import Engine, safe_filename
 from .crypto import public_card, check_card
 from .i18n import EN, tr, language, alignment, load_language, save_language
 from .privacy import protect_android_screen, protect_windows_screen
+from .deployment import DEFAULT_RELAY, read_profile, validate_relay, write_json
+from .wire import preflight
 
 ROOT = Path(__file__).resolve().parent.parent
 FONT = str(ROOT / "assets" / "Vazirmatn-Regular.ttf")
@@ -86,40 +90,74 @@ def label(text="", **kw):
 
 
 def wrapped_label(text, **kw):
+    kw.setdefault('size_hint_y', None)
     widget = label("", halign=alignment(), valign="middle", **kw)
+    logical = [str(text)]
 
     def fit(*_):
         # Wrap logical Persian before bidi shaping; wrapping the visual string
         # reverses sentence fragments on narrow screens.
         columns = max(8, int(widget.width / (widget.font_size * 0.65)))
-        lines = ["\n".join(textwrap.wrap(line, columns) or [""]) for line in str(text).split("\n")]
-        widget.text_size = widget.size
+        lines = ["\n".join(textwrap.wrap(line, columns) or [""]) for line in logical[0].split("\n")]
+        widget.text_size = (widget.width, None)
         widget.text = fa("\n".join(lines))
 
-    widget.bind(size=fit, font_size=fit)
+    def update(value):
+        logical[0] = str(value)
+        fit()
+    widget.update_text = update
+    widget.bind(width=fit, font_size=fit, texture_size=lambda w, size: setattr(w, 'height', max(dp(28),size[1]+dp(8))))
     fit()
     return widget
 
 
 def button(text, callback, **kw):
     color = kw.pop("background_color", BLUE)
+    icon = kw.pop('icon', None)
+    kw.setdefault('height', dp(44))
+    kw.setdefault('size_hint_y', None)
     b = Button(
         text=fa(text),
         font_name=FONT,
         font_size=dp(15),
         background_normal="",
         background_color=(0, 0, 0, 0),
-        size_hint_y=None,
-        height=dp(44),
         **kw
     )
     with b.canvas.before:
         fill = Color(*color)
-        shape = RoundedRectangle(pos=b.pos, size=b.size, radius=[dp(14)])
+        shape = RoundedRectangle(pos=b.pos, size=b.size, radius=[dp(28) if icon in ('send','compose') else dp(14)])
     def redraw(*_):
         shape.pos, shape.size = b.pos, b.size
         fill.rgba = tuple(c * 0.82 for c in color[:3]) + (color[3],) if b.state == "down" else color
     b.bind(pos=redraw, size=redraw, state=redraw)
+    if icon:
+        b.color = (1, 1, 1, 0)
+        group = InstructionGroup()
+        b.canvas.after.add(group)
+        def draw_icon(*_):
+            group.clear()
+            group.add(Color(0.88, 0.94, 0.98, 1))
+            x, y, s = b.center_x, b.center_y, dp(10)
+            def stroke(points, close=False):
+                group.add(Line(points=points, width=dp(1.2), close=close))
+            if icon=='menu':
+                for dy in (-s*0.6, 0, s*0.6): stroke([x-s,y+dy,x+s,y+dy])
+            elif icon=='back':
+                stroke([x+s*0.3,y+s,x-s*0.7,y,x+s*0.3,y-s])
+            elif icon=='send':
+                stroke([x-s,y+s,x+s,y,x-s,y-s,x-s*0.45,y,x-s,y+s], True)
+                stroke([x-s*0.45,y,x+s,y])
+            elif icon=='attach':
+                stroke([x-s*0.7,y-s*0.5,x+s*0.6,y+s*0.8,x+s,y+s*0.4,x-s*0.3,y-s,x-s*0.8,y-s*0.6,x+s*0.4,y+s*0.5])
+            elif icon=='compose':
+                stroke([x-s*0.8,y-s*0.8,x-s*0.55,y-s*0.1,x+s*0.65,y+s*0.85,x+s,y+s*0.5,x-s*0.15,y-s*0.7], True)
+            elif icon=='info':
+                group.add(Line(circle=(x,y,s),width=dp(1.2)))
+                stroke([x,y-s*0.55,x,y+s*0.1])
+                group.add(Ellipse(pos=(x-dp(1),y+s*0.45),size=(dp(2),dp(2))))
+        b.bind(pos=draw_icon,size=draw_icon)
+        draw_icon()
     b.bind(on_release=lambda *_: callback())
     return b
 
@@ -214,7 +252,7 @@ class MehrApp(App):
         self.engine = None
         self._locking = False
         self.chat = None
-        self.rootbox = BoxLayout(orientation="vertical", padding=0, spacing=0)
+        self.rootbox = Surface(orientation="vertical", padding=0, spacing=0, color=BG)
         self.open_popups = []
         self.last_activity = time.monotonic()
         Window.bind(
@@ -234,7 +272,18 @@ class MehrApp(App):
         self.screen_protection_done = platform != "android"
         self.login_failures = 0
         self.login_retry_at = 0
-        self.unlock_screen()
+        self.connection_path = self.vault_path.parent / 'connection.json'
+        profile_path = ROOT / 'assets/client-profile.json'
+        self.dedicated = read_profile(profile_path) if profile_path.exists() and os.environ.get('MEHRCHAT_SMOKE_TEST') != 'flow' else None
+        self.connection_ready = os.environ.get('MEHRCHAT_SMOKE_TEST') == 'flow'
+        self.selected_relay = dict(self.dedicated['relay']) if self.dedicated else dict(DEFAULT_RELAY)
+        if not self.dedicated and self.connection_path.exists():
+            try:
+                with self.connection_path.open(encoding='utf-8') as f:
+                    self.selected_relay = validate_relay(json.loads(f.read(8192)))
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
+        self.unlock_screen() if self.connection_ready else self.connection_screen()
         if platform == "android":
             try:
                 protect_android_screen(lambda ok: Clock.schedule_once(lambda *_: self.screen_protection_result(ok)))
@@ -248,7 +297,8 @@ class MehrApp(App):
     def screen_protection_result(self, ok):
         self.screen_protection_done = True
         self.screen_protected = ok
-        self.loginbutton.disabled = not ok
+        if hasattr(self, 'loginbutton'):
+            self.loginbutton.disabled = not ok
         if not ok:
             self.error(tr("حفاظت صفحه فعال نشد؛ حساب باز نمی‌شود"))
 
@@ -265,7 +315,7 @@ class MehrApp(App):
                 self.select(chat)
                 self.compose.text = self.engine.d.get("drafts", {}).get(chat, "")
         else:
-            self.unlock_screen()
+            self.unlock_screen() if self.connection_ready else self.connection_screen()
 
     def resize_layout(self, *_):
         if (
@@ -328,16 +378,113 @@ class MehrApp(App):
                 else tr("عملیات انجام نشد؛ اطلاعات را بررسی کنید")
             )
 
-    def unlock_screen(self):
+    def connection_screen(self):
+        from . import __version__
         self.rootbox.clear_widgets()
-        wrap = BoxLayout(
-            orientation="vertical",
-            padding=[dp(30), dp(30)],
-            spacing=dp(14),
-            size_hint=(1, None),
-            height=dp(500),
-        )
-        wrap.add_widget(label(tr("مهر"), font_size=dp(38), size_hint_y=None, height=dp(70)))
+        self._connection_generation = getattr(self, '_connection_generation', 0) + 1
+        generation = self._connection_generation
+        outer = BoxLayout(padding=[dp(24), dp(24)])
+        outer.add_widget(Label())
+        scroll = ScrollView(size_hint_x=None, width=min(Window.width-dp(48), dp(440)), do_scroll_x=False)
+        card = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(14), padding=[0, dp(20)])
+        card.bind(minimum_height=card.setter('height'))
+        card.add_widget(label(tr('مهر'), font_size=dp(42), bold=True, size_hint_y=None, height=dp(72)))
+        card.add_widget(label(tr('ابتدا به سرور متصل شوید'), font_size=dp(20), size_hint_y=None, height=dp(36)))
+        card.add_widget(wrapped_label(tr('اتصال پیش از ورود بررسی می‌شود؛ در این مرحله حسابی ساخته نمی‌شود')))
+        self.connection_mode = self.selected_relay.get('transport', 'tls-noise')
+        if not self.dedicated:
+            row = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(10))
+            self.connection_host = field(tr('IP یا دامنه'))
+            self.connection_host.text = self.selected_relay['host']
+            self.connection_port = field(tr('پورت'))
+            self.connection_port.size_hint_x = 0.28
+            self.connection_port.text = str(self.selected_relay['port'])
+            row.add_widget(self.connection_host); row.add_widget(self.connection_port)
+            card.add_widget(row)
+            modes = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(8))
+            self.mode_tls = button('TLS + Noise', lambda: choose('tls-noise'))
+            self.mode_noise = button('Noise', lambda: choose('noise'))
+            modes.add_widget(self.mode_tls); modes.add_widget(self.mode_noise)
+            card.add_widget(modes)
+            self.connection_tls_pin = field(tr('اثر انگشت TLS برای گواهی محلی'))
+            self.connection_tls_pin.text = self.selected_relay.get('tls_pin', '')
+            self.connection_noise_pin = field(tr('کلید عمومی سرور'))
+            self.connection_noise_pin.text = self.selected_relay.get('pin', '')
+            card.add_widget(self.connection_tls_pin); card.add_widget(self.connection_noise_pin)
+            card.add_widget(wrapped_label(tr('گواهی عمومی خودکار بررسی می‌شود؛ برای گواهی محلی پروفایل صادرشده توسط مدیر را وارد کنید')))
+            def load_profile(stream):
+                from .deployment import validate_profile
+                raw = stream.read(8193)
+                if len(raw)>8192: raise ValueError('Profile too large')
+                self.selected_relay = dict(validate_profile(json.loads(raw))['relay'])
+                self.connection_screen()
+            card.add_widget(button(tr('واردکردن پروفایل سرور'), lambda: self.choose_document('open', 'client-profile.json', load_profile)))
+            def choose(mode):
+                self.connection_mode = mode
+                self.connection_tls_pin.disabled = mode != 'tls-noise'
+                if mode == 'noise': self.connection_tls_pin.text = ''
+                self.connection_status.update_text('TLS + Noise' if mode == 'tls-noise' else tr('TLS غیرفعال؛ Noise فعال'))
+        card.add_widget(label(__version__ + '  ·  ' + ('TLS + Noise' if self.connection_mode=='tls-noise' else 'Noise'), font_size=dp(13), size_hint_y=None, height=dp(28)))
+        self.connection_status = wrapped_label(tr('آماده برای آزمایش اتصال'))
+        def test_connection():
+            try:
+                value = dict(self.selected_relay) if self.dedicated else {
+                    'host':self.connection_host.text.strip(), 'port':int(self.connection_port.text),
+                    'transport':self.connection_mode, 'pin':self.connection_noise_pin.text.strip(),
+                    'tls_pin':self.connection_tls_pin.text.strip()}
+                validate_relay(value, complete=False)
+            except (ValueError, KeyError, TypeError):
+                self.connection_status.update_text(tr('مشخصات سرور معتبر نیست')); return
+            self.connectbutton.disabled = True
+            self.connection_status.update_text(tr('در حال بررسی اتصال امن'))
+            def complete(result=None):
+                if generation != self._connection_generation: return
+                self.connectbutton.disabled = False
+                if result is None:
+                    self.connection_status.update_text(tr('اتصال ناموفق؛ آدرس، پورت و کلید اعتماد را بررسی کنید'))
+                    return
+                try:
+                    self.selected_relay, self.server_info = result
+                    if not self.dedicated: write_json(self.connection_path, self.selected_relay)
+                    self.connection_ready = True
+                    self.unlock_screen()
+                except OSError:
+                    self.connection_status.update_text(tr('ذخیره تنظیمات اتصال انجام نشد'))
+            def work():
+                try:
+                    result = asyncio.run(preflight(value))
+                except Exception:
+                    result = None
+                Clock.schedule_once(lambda *_: complete(result))
+            threading.Thread(target=work, daemon=True).start()
+        self.connectbutton = button(tr('اتصال و ادامه'), test_connection)
+        column = BoxLayout(orientation='vertical', size_hint_x=None, width=scroll.width, spacing=dp(10))
+        scroll.size_hint_x = 1
+        scroll.add_widget(card)
+        column.add_widget(scroll)
+        column.add_widget(self.connection_status)
+        column.add_widget(self.connectbutton)
+        column.add_widget(button('English' if language()=='fa' else 'فارسی', self.change_language, background_color=PANEL))
+        outer.add_widget(column); outer.add_widget(Label())
+        self.rootbox.add_widget(outer)
+
+    def unlock_screen(self):
+        if not self.connection_ready:
+            self.connection_screen()
+            return
+        self.rootbox.clear_widgets()
+        frame = BoxLayout(padding=[dp(24), dp(24)])
+        frame.add_widget(Label())
+        scroll = ScrollView(size_hint_x=None, width=min(Window.width-dp(48),dp(420)), do_scroll_x=False)
+        wrap = BoxLayout(orientation='vertical', padding=[dp(8),dp(24)], spacing=dp(16), size_hint_y=None)
+        wrap.bind(minimum_height=wrap.setter('height'))
+        hero = BoxLayout(size_hint_y=None, height=dp(96))
+        hero.add_widget(Label())
+        hero.add_widget(button(tr('مهر'), lambda: None, icon='send', size_hint_x=None, width=dp(80), height=dp(80)))
+        hero.add_widget(Label())
+        wrap.add_widget(hero)
+        wrap.add_widget(label(tr("مهر"), font_size=dp(36), bold=True, size_hint_y=None, height=dp(55)))
+        wrap.add_widget(wrapped_label(tr('گفتگوهای شما، با کلیدهای روی دستگاه شما')))
         self.username = field(tr("نام کاربری"))
         self.displayname = field(tr("نام نمایشی"))
         if not self.vault_path.exists():
@@ -352,9 +499,19 @@ class MehrApp(App):
         wrap.add_widget(self.loginbutton)
         wrap.add_widget(button(tr("بازیابی پشتیبان"), self.restore_dialog))
         wrap.add_widget(button("English" if language() == "fa" else "فارسی", self.change_language))
-        self.rootbox.add_widget(wrap)
+        if os.environ.get('MEHRCHAT_SMOKE_TEST') != 'flow':
+            wrap.add_widget(label(tr('اتصال امن تأیید شد'), font_size=dp(12), size_hint_y=None, height=dp(28)))
+            if not self.dedicated:
+                def change_connection():
+                    self.connection_ready = False
+                    self.connection_screen()
+                wrap.add_widget(button(tr('تغییر اتصال'),change_connection,background_color=PANEL))
+        scroll.add_widget(wrap); frame.add_widget(scroll); frame.add_widget(Label())
+        self.rootbox.add_widget(frame)
 
     def unlock(self):
+        if not self.connection_ready:
+            return
         if self.loginbutton.disabled:
             return
         if not self.screen_protected:
@@ -402,7 +559,10 @@ class MehrApp(App):
         self.password.text = ""
         vault.acquire_lock()
         self.last_activity = time.monotonic()
-        self.engine = Engine(vault)
+        if self.selected_relay.get('pin') and os.environ.get('MEHRCHAT_SMOKE_TEST') != 'flow':
+            vault.data['relays'] = [dict(self.selected_relay)]
+            vault.save()
+        self.engine = Engine(vault, self.dedicated['relay'] if self.dedicated else None)
         self.engine.changed = lambda: Clock.schedule_once(lambda *_: self.refresh())
         self.engine.start()
         self.shell()
@@ -449,24 +609,27 @@ class MehrApp(App):
                 tr("منو"),
                 self.main_menu,
                 size_hint_x=None,
-                width=dp(62),
+                width=dp(44), icon='menu',
                 background_color=PANEL,
             )
         )
-        toolbar.add_widget(label(tr("گفتگوها"), bold=True, font_size=dp(21)))
-        toolbar.add_widget(button("+", self.new_menu, size_hint_x=None, width=dp(44)))
+        toolbar.add_widget(label(tr("مهر"), bold=True, font_size=dp(23), halign=alignment()))
         self.sidebar.add_widget(toolbar)
         self.search = field(tr("جستجو"))
         self.search.height = dp(42)
         self.search.bind(text=lambda *_: self.refresh())
         self.sidebar.add_widget(self.search)
-        scroll = ScrollView()
+        scroll = ScrollView(bar_width=dp(2), pos_hint={'x':0,'y':0})
         self.chatlist = BoxLayout(
             orientation="vertical", size_hint_y=None, spacing=dp(2)
         )
         self.chatlist.bind(minimum_height=self.chatlist.setter("height"))
         scroll.add_widget(self.chatlist)
-        self.sidebar.add_widget(scroll)
+        list_area = FloatLayout()
+        list_area.add_widget(scroll)
+        self.compose_new = button(tr('گفتگوی جدید'), self.new_menu, size_hint=(None,None), width=dp(56), height=dp(56), pos_hint={'right':0.96,'y':0.025}, icon='compose')
+        list_area.add_widget(self.compose_new)
+        self.sidebar.add_widget(list_area)
         body.add_widget(self.sidebar)
         self.mainpane = Surface(orientation="vertical", padding=0, spacing=0, color=BG)
         header = Surface(
@@ -478,7 +641,7 @@ class MehrApp(App):
                     tr("بازگشت"),
                     self.show_chat_list,
                     size_hint_x=None,
-                    width=dp(65),
+                    width=dp(40), icon='back',
                     background_color=PANEL,
                 )
             )
@@ -499,12 +662,12 @@ class MehrApp(App):
                 tr("اطلاعات"),
                 self.chat_info,
                 size_hint_x=None,
-                width=dp(75),
+                width=dp(42), icon='info',
                 background_color=PANEL,
             )
         )
         self.mainpane.add_widget(header)
-        self.messagescroll = ScrollView()
+        self.messagescroll = ScrollView(bar_width=dp(2))
         self.messagebox = BoxLayout(
             orientation="vertical",
             size_hint_y=None,
@@ -528,7 +691,7 @@ class MehrApp(App):
         )
         composer.add_widget(
             button(
-                "+", self.attach, size_hint_x=None, width=dp(42), background_color=PANEL
+                "+", self.attach, size_hint_x=None, width=dp(42), background_color=BG, icon='attach'
             )
         )
         self.compose = field(tr("پیام"), multiline=True)
@@ -539,7 +702,7 @@ class MehrApp(App):
             )
         )
         composer.add_widget(self.compose)
-        composer.add_widget(button(tr("ارسال"), self.send, size_hint_x=None, width=dp(70)))
+        composer.add_widget(button(tr("ارسال"), self.send, size_hint_x=None, width=dp(50), icon='send'))
         self.mainpane.add_widget(composer)
         body.add_widget(self.mainpane)
         self.rootbox.add_widget(body)
@@ -981,6 +1144,15 @@ class MehrApp(App):
         box.add_widget(button(tr("بستن"), pop.dismiss))
 
     def settings(self):
+        if self.dedicated:
+            from . import __version__
+            box = BoxLayout(orientation='vertical', padding=dp(20), spacing=dp(14))
+            box.add_widget(label(__version__))
+            box.add_widget(label('TLS + Noise_NK'))
+            box.add_widget(label(tr('TLS فعال است')))
+            pop = self.dialog(tr('اطلاعات اتصال'), box)
+            box.add_widget(button(tr('بستن'), pop.dismiss))
+            return
         box = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
         scroll = ScrollView()
         rows = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(10))
@@ -1007,6 +1179,8 @@ class MehrApp(App):
                 field(tr("کلید عمومی سرور")),
             )
             host.text = value["host"]
+            host.relay_transport = value.get('transport', 'noise')
+            host.relay_tls_pin = value.get('tls_pin', '')
             port.text = str(value["port"])
             pin.text = value["pin"]
             port.size_hint_x = 0.3
@@ -1032,7 +1206,7 @@ class MehrApp(App):
         def save():
             self.engine.configure_relays(
                 [
-                    {"host": h.text.strip(), "port": int(p.text), "pin": k.text.strip()}
+                    {"host": h.text.strip(), "port": int(p.text), "pin": k.text.strip(), 'transport':h.relay_transport, 'tls_pin':h.relay_tls_pin}
                     for h, p, k, _ in fields
                 ]
             )

@@ -9,7 +9,7 @@ import sqlite3
 import time
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import Thread
+from threading import Thread, Lock
 from .crypto import create_identity, public_card, check_card, verify, pack
 from .wire import accept
 from .limits import AdmissionLimiter
@@ -54,6 +54,9 @@ class Relay:
             tokenfile.write_text(secrets.token_urlsafe(32))
             tokenfile.chmod(0o600)
         self.admin_token = tokenfile.read_text().strip()
+        self.admin_credentials = self.root / 'admin-account.json'
+        self.admin_limiter = AdmissionLimiter(rate=0.2, burst=5, capacity=1)
+        self.admin_lock = Lock()
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL)"
         )
@@ -146,6 +149,23 @@ class Relay:
 
     def settings(self):
         return json.loads(self.config_path.read_text())
+
+    def authenticate_admin(self, values):
+        with self.admin_lock:
+            if not self.admin_limiter.allow('admin'):
+                return False
+        if self.admin_credentials.exists():
+            from nacl.pwhash import argon2id
+            from nacl.exceptions import InvalidkeyError
+            account = json.loads(self.admin_credentials.read_text())
+            username, password = values.get('username', [''])[0], values.get('password', [''])[0]
+            if not hmac.compare_digest(username.encode(), account['username'].encode()) or len(password) > 1024:
+                return False
+            try:
+                return argon2id.verify(account['password_hash'].encode(), password.encode())
+            except (InvalidkeyError, ValueError):
+                return False
+        return hmac.compare_digest(values.get('token', [''])[0].encode(), self.admin_token.encode())
 
     def cleanup(self):
         now = time.time()
@@ -253,8 +273,10 @@ class Relay:
         user = None
         try:
             channel, card = await asyncio.wait_for(
-                accept(reader, writer, self.identity, self.register), 15
+                accept(reader, writer, self.identity, self.register, allow_probe=True), 15
             )
+            if card is None:
+                return
             user = check_card(card)["id"]
             if user in self.active:
                 user = None
@@ -369,6 +391,8 @@ class Relay:
 <h1>تنظیمات سرور</h1><form method="post"><p>رمز مدیریت</p><input type="password" name="token" required autocomplete="off"><p><label><input type="checkbox" name="files" value="yes">فعال‌سازی ارسال فایل</label></p><button>ذخیره</button></form><p>حداکثر حجم فایل: ۴ مگابایت</p></html>"""
                 if relay.settings()["files_enabled"]:
                     html = html.replace('value="yes"', 'value="yes" checked')
+                if relay.admin_credentials.exists():
+                    html = html.replace('<p>رمز مدیریت</p><input type="password" name="token" required autocomplete="off">', '<p>Admin username / نام کاربری مدیر</p><input name="username" required autocomplete="username"><p>Admin password / رمز مدیر</p><input type="password" name="password" required autocomplete="current-password">')
                 html += '<p><a href="/?lang=fa">فارسی</a> | <a href="/?lang=en">English</a></p>'
                 if self.english():
                     for fa, en in {
@@ -404,9 +428,7 @@ class Relay:
                 except (UnicodeError, ValueError):
                     self.send_error(400)
                     return
-                if not hmac.compare_digest(
-                    values.get("token", [""])[0].encode(), relay.admin_token.encode()
-                ):
+                if not relay.authenticate_admin(values):
                     self.send_error(403)
                     return
                 conf = relay.settings()
@@ -427,12 +449,28 @@ class Relay:
 
 async def run(args):
     relay = Relay(args.data)
+    config_path = relay.root / 'deployment.json'
+    config = json.loads(config_path.read_text()) if config_path.exists() else {}
+    tls = config.get('tls')
+    context = None
+    tls_pin = None
+    if tls:
+        from .tls import server_context
+        from .tls import public_key_pin
+        from cryptography import x509
+        from cryptography.hazmat.primitives import serialization
+        context = server_context(tls['cert'], tls['key'])
+        tls_pin = public_key_pin(x509.load_pem_x509_certificate(Path(tls['cert']).read_bytes()).public_bytes(serialization.Encoding.DER))
+    if config.get('port'):
+        args.port = config['port']
     (relay.root / "relay-public.json").write_text(
         json.dumps(
             {
                 "transport": "Noise_NK_25519_ChaChaPoly_SHA256",
                 "port": args.port,
                 "pin": relay.pin,
+                'tls': bool(tls),
+                'tls_pin': tls_pin,
             }
         )
     )
@@ -443,7 +481,7 @@ async def run(args):
         flush=True,
     )
     relay.start_admin(args.admin_port)
-    server = await asyncio.start_server(relay.handle, args.host, args.port)
+    server = await asyncio.start_server(relay.handle, args.host, args.port, **({'ssl': context, 'ssl_handshake_timeout': 12} if context else {}))
 
     async def sweep():
         while True:
@@ -465,7 +503,12 @@ def main():
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--admin-port", type=int, default=8788)
     parser.add_argument("--data", default="relay-data")
+    parser.add_argument('--setup', action='store_true', help='Interactive Ubuntu deployment configuration')
     args = parser.parse_args()
+    if args.setup:
+        from .setup import configure
+        configure(args.data)
+        return
     try:
         asyncio.run(run(args))
     except KeyboardInterrupt:

@@ -1,3 +1,7 @@
+## 0.4.0-rc1 verification
+
+106 source tests passed locally, including actual TLS + Noise discovery, pin rejection, SOCKS remote DNS, independent group verification and the wizard public-certificate failure path. The local dedicated-APK signing helper generated a disposable key and signed/verified a real APK. Native CI now exercises the compiled relay over TLS and pre-login standard/dedicated connection screens. Android network smoke now uses TLS + Noise. Check the current Actions run for platform build results; source tests alone do not establish them. No real deployment domain or operator account has been supplied for ACME issuance or personalized production builds.
+
 # Build and validation
 
 The current commit's GitHub Actions run is authoritative. Packages include actual logs/tests in `reports/`. Workflow source alone does not establish success.

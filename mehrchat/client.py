@@ -48,10 +48,14 @@ def safe_filename(name):
 
 
 class Engine:
-    def __init__(self, vault):
+    def __init__(self, vault, locked_relay=None):
         self.vault = vault
         self.d = vault.data
         self.identity = self.d["identity"]
+        self.locked_relay = copy.deepcopy(locked_relay)
+        if locked_relay:
+            from .deployment import validate_relay
+            self.d['relays'] = [validate_relay(locked_relay)]
         self.card = public_card(self.identity)
         self.me = self.card["body"]["id"]
         self.lock = threading.RLock()
@@ -590,9 +594,13 @@ class Engine:
                 self.start()
 
     def configure_relays(self, relays):
+        if self.locked_relay and relays != [self.locked_relay]:
+            raise ValueError('Dedicated build connection is fixed')
         if len(relays) > 5:
             raise ValueError("حداکثر ۵ سرور")
         for r in relays:
+            from .deployment import validate_relay
+            validate_relay(r)
             validate_destination(r["host"], r["port"])
             if (
                 not isinstance(r["host"], str)
@@ -680,6 +688,8 @@ class Engine:
                     self.identity,
                     self.card,
                     proxy=self.d.get("proxy"),
+                    transport=relay.get('transport', 'noise'),
+                    tls_pin=relay.get('tls_pin'),
                 )
                 self.connected[route] = False
                 self.connection_errors.pop(route, None)

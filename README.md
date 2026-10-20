@@ -1,3 +1,7 @@
+## 0.4.0-rc1 deployment update
+
+Ubuntu: extract the complete native package, then run `sudo bash deploy/setup-ubuntu.sh`. See [Persian installation guide](INSTALL.fa.md). The wizard configures an Argon2id admin account, confirmed server IP, optional domain/public certificate, mandatory pinned TLS fallback, and optional GitHub-built dedicated Windows/Android clients with local APK signing. Standard clients authenticate the connection before login. Dedicated clients omit endpoint controls; embedded endpoints remain extractable from the binary/network.
+
 # MehrChat
 
 Persian/English native messenger for Windows, Linux and Android with self-hosted Windows Server and Ubuntu relays.

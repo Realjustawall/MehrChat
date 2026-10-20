@@ -63,7 +63,7 @@ with zipfile.ZipFile(args.apk) as z:
         assert any(n in names for n in ("main.py", "main.pyc"))
         assert "assets/Vazirmatn-Regular.ttf" in names
         assert not any(
-            Path(n).name in ("transport-key.json", "admin-token.txt", "signing-password.txt")
+            Path(n).name in ("transport-key.json", "admin-token.txt", "signing-password.txt", 'admin-account.json', 'tls-key.pem', 'deployment.json')
             or Path(n).suffix.lower() in (".mcv", ".restore", ".sqlite", ".p12", ".pfx", ".jks", ".keystore")
             for n in names
         )
@@ -101,6 +101,7 @@ assert (
 ), "Rust crypto/model extensions not inspected"
 for name, version in {
     "pynacl": "1.6.2",
+    "certifi": "2026.10.19",
     "cryptography": "50.0.2",
     "doubleratchet": "1.3.0",
     "noiseprotocol": "0.3.1",

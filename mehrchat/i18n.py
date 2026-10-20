@@ -6,6 +6,21 @@ from pathlib import Path
 
 _language = 'fa'
 EN = {
+    'ابتدا به سرور متصل شوید': 'Connect to your server first',
+    'اتصال پیش از ورود بررسی می‌شود؛ در این مرحله حسابی ساخته نمی‌شود': 'Your connection is verified before sign-in. No account is created at this step.',
+    'اثر انگشت TLS برای گواهی محلی': 'TLS public-key fingerprint for a local certificate',
+    'گواهی عمومی خودکار بررسی می‌شود؛ برای گواهی محلی پروفایل صادرشده توسط مدیر را وارد کنید': 'Public certificates are verified automatically. For a local certificate, import the administrator-issued profile.',
+    'واردکردن پروفایل سرور': 'Import server profile',
+    'TLS غیرفعال؛ Noise فعال': 'TLS off; Noise encryption on',
+    'آماده برای آزمایش اتصال': 'Ready to check the connection',
+    'در حال بررسی اتصال امن': 'Checking your secure connection',
+    'اتصال ناموفق؛ آدرس، پورت و کلید اعتماد را بررسی کنید': 'Connection failed. Check the address, port and trusted public keys.',
+    'ذخیره تنظیمات اتصال انجام نشد': 'Unable to save connection settings',
+    'اتصال و ادامه': 'Connect and continue',
+    'TLS فعال است': 'TLS is enabled',
+    'اطلاعات اتصال': 'Connection information',
+    'گفتگوهای شما، با کلیدهای روی دستگاه شما': 'Your conversations. Your keys, on your device.',
+    'اتصال امن تأیید شد': 'Secure connection verified', 'تغییر اتصال': 'Change connection',
     'رمزگذاری سرتاسری': 'End-to-end encrypted',
     'پیش از ارسال، اثر انگشت همه اعضای گروه را تأیید کنید': 'Verify every group member fingerprint independently before sending',
     'ارسال گروهی فقط پس از تأیید مستقل همه اعضا مجاز است': 'Group sending requires independent verification of every member',
