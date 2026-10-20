@@ -6,6 +6,7 @@ import io, json, os, time
 from pathlib import Path
 from kivy.clock import Clock
 from kivy.core.window import Window
+from kivy.graphics import Fbo, ClearColor, ClearBuffers, Scale, Translate
 from kivy.core.image import Image as CoreImage
 from kivy.uix.button import Button
 from kivy.uix.checkbox import CheckBox
@@ -29,10 +30,30 @@ def install(app, result_path):
     def capture(name):
         if gallery:
             target = gallery / (name + ".png")
-            # Popups are Window children, outside the app root's canvas.
-            actual = Path(Window.screenshot(name=str(target)))
-            if actual != target:
-                actual.replace(target)
+            # Render the actual top-level canvases, including popups, into an FBO.
+            # ANGLE can return a black image when reading the default framebuffer.
+            layers = sorted((Window.canvas.indexof(w.canvas), w.canvas) for w in Window.children
+                            if Window.canvas.indexof(w.canvas) >= 0)
+            fbo = Fbo(size=Window.size, with_stencilbuffer=True)
+            with fbo:
+                ClearColor(*Window.clearcolor)
+                ClearBuffers()
+                Scale(1, -1, 1)
+                Translate(0, -Window.height, 0)
+            try:
+                for _, canvas in layers:
+                    Window.canvas.remove(canvas)
+                    fbo.add(canvas)
+                fbo.draw()
+                pixels = fbo.texture.pixels
+                colors = {pixels[i:i+3] for i in range(0, len(pixels), 4 * 37)}
+                assert len(colors) > 32, "UI gallery capture is blank: " + name
+                CoreImage(fbo.texture).save(str(target))
+            finally:
+                for index, canvas in layers:
+                    fbo.remove(canvas)
+                    Window.canvas.insert(index, canvas)
+                Window.canvas.ask_update()
     config_path = os.environ.get("MEHRCHAT_SMOKE_NETWORK_CONFIG")
     network = json.loads(Path(config_path).read_text()) if config_path else None
 
