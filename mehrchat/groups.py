@@ -1,6 +1,6 @@
 """Owner-signed membership chains; group-scoped cards do not verify private contacts."""
 
-import hashlib, secrets
+import hashlib, secrets, unicodedata
 from .crypto import signed, verify, check_card, pack
 
 
@@ -9,6 +9,8 @@ class Groups:
         self.e = engine
 
     def make(self, name, members, chat=None):
+        if not isinstance(members, list) or not all(isinstance(p, str) for p in members):
+            raise ValueError("Invalid membership")
         roster = sorted(set(members + [self.e.me]))
         old = self.e.d["groups"].get(chat) if chat else None
         if old and old["body"]["owner"] != self.e.me:
@@ -29,7 +31,21 @@ class Groups:
         self.validate(descriptor, self.e.me)
         return descriptor
 
+    def require_verified(self, descriptor):
+        # Owner signatures authenticate the roster, not independent ownership
+        # of every participant's device. Never auto-trust group-scoped cards.
+        if "private" not in descriptor and any(
+            p != self.e.me and p not in self.e.d["contacts"]
+            for p in descriptor["body"]["members"]
+        ):
+            raise ValueError("پیش از ارسال، اثر انگشت همه اعضای گروه را تأیید کنید")
+
+    def safety_code(self, descriptor):
+        return hashlib.sha256(b"MehrChat-group-safety-v1\0" + pack(descriptor)).hexdigest()
+
     def validate(self, descriptor, sender, allow_removed=False):
+        if not isinstance(descriptor, dict):
+            raise ValueError("Invalid group descriptor")
         if "private" in descriptor:
             members = descriptor["private"]
             if (
@@ -47,16 +63,15 @@ class Groups:
         body = descriptor["body"]
         owner = body["owner"]
         if "chain" not in descriptor:
-            verify(self.e.peer_card(owner), descriptor)
-            for p in body["members"]:
-                check_card(self.e.peer_card(p))
-            gid = hashlib.sha256(pack(descriptor)).hexdigest()
+            # Old unversioned descriptors cannot silently downgrade membership
+            # history validation. Existing local history remains readable.
+            raise ValueError("Unsigned membership history is not supported")
         else:
             chain = descriptor["chain"]
             if not 1 <= len(chain) <= 64 or chain[-1]["body"] != body:
                 raise ValueError("Invalid group chain")
             gid = body["id"]
-            if len(gid) != 64 or any(c not in "0123456789abcdef" for c in gid):
+            if not isinstance(gid, str) or len(gid) != 64 or any(c not in "0123456789abcdef" for c in gid):
                 raise ValueError("Invalid group ID")
             if (
                 gid not in self.e.d["groups"]
@@ -70,15 +85,17 @@ class Groups:
                 members = b["members"]
                 expected = hashlib.sha256(pack(chain[i - 1])).hexdigest() if i else None
                 if (
-                    b["v"] != 2
+                    type(b["v"]) is not int or b["v"] != 2
                     or b["id"] != gid
                     or b["owner"] != owner
-                    or b["epoch"] != i
+                    or type(b["epoch"]) is not int or b["epoch"] != i
                     or b["previous"] != expected
                 ):
                     raise ValueError("Invalid group epoch")
                 if (
-                    not 2 <= len(members) <= 32
+                    not isinstance(members, list)
+                    or not all(isinstance(p, str) and len(p) == 64 for p in members)
+                    or not 2 <= len(members) <= 32
                     or len(set(members)) != len(members)
                     or owner not in members
                 ):
@@ -93,7 +110,8 @@ class Groups:
                         and self.e.d["contacts"][p]["body"]["id"] != p
                     ):
                         raise ValueError("Conflicting identity")
-                if not 1 <= len(b["name"]) <= 80:
+                if (not isinstance(b["name"], str) or not 1 <= len(b["name"].strip()) <= 80
+                    or any(unicodedata.category(c) in ("Cc", "Cs") or c in "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069" for c in b["name"])):
                     raise ValueError("Invalid group name")
             old = self.e.d["groups"].get(gid)
             if old and "chain" in old:

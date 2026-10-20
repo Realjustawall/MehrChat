@@ -6,6 +6,12 @@ from pathlib import Path
 
 _language = 'fa'
 EN = {
+    'رمزگذاری سرتاسری': 'End-to-end encrypted',
+    'پیش از ارسال، اثر انگشت همه اعضای گروه را تأیید کنید': 'Verify every group member fingerprint independently before sending',
+    'ارسال گروهی فقط پس از تأیید مستقل همه اعضا مجاز است': 'Group sending requires independent verification of every member',
+    'کد امنیت گروه': 'Group safety code',
+    'این کد را با اعضا از مسیر مطمئن مقایسه کنید؛ با تغییر عضویت تغییر می‌کند': 'Compare this code with members through a trusted channel. It changes when membership changes.',
+    'تأییدشده': 'Verified', 'نیازمند تأیید': 'Needs verification',
 ' عضو': ' members', 'IP یا دامنه': 'IP or hostname', 'آفلاین': 'Offline',
 'اثر انگشت': 'Fingerprint', 'اثر انگشت تأییدشده': 'Independently verified fingerprint',
 'اثر انگشت را از مسیر مطمئن به مخاطب بدهید': 'Share your fingerprint through a trusted channel',

@@ -17,7 +17,7 @@ if platform != "android":
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.window import Window
-from kivy.graphics import Color, RoundedRectangle
+from kivy.graphics import Color, RoundedRectangle, InstructionGroup
 from kivy.metrics import dp
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
@@ -36,9 +36,9 @@ from .privacy import protect_android_screen, protect_windows_screen
 
 ROOT = Path(__file__).resolve().parent.parent
 FONT = str(ROOT / "assets" / "Vazirmatn-Regular.ttf")
-BG = (0.055, 0.09, 0.13, 1)
-PANEL = (0.09, 0.13, 0.18, 1)
-BLUE = (0.18, 0.56, 0.79, 1)
+BG = (0.055, 0.086, 0.12, 1)
+PANEL = (0.09, 0.125, 0.17, 1)
+BLUE = (0.22, 0.61, 0.85, 1)
 TEXT = (0.88, 0.93, 0.96, 1)
 
 
@@ -64,6 +64,7 @@ class ChatRow(ButtonBehavior, Surface):
 
 class Avatar(Surface):
     def __init__(self, name, identity, **kw):
+        kw.setdefault("size", (dp(48), dp(48)))
         palette = [
             (0.25, 0.56, 0.69, 1),
             (0.43, 0.42, 0.69, 1),
@@ -73,7 +74,6 @@ class Avatar(Surface):
         super().__init__(
             color=palette[int(identity[:2], 16) % len(palette)],
             size_hint=(None, None),
-            size=(dp(48), dp(48)),
             **kw
         )
         self.rect.radius = [dp(24)]
@@ -108,11 +108,18 @@ def button(text, callback, **kw):
         font_name=FONT,
         font_size=dp(15),
         background_normal="",
-        background_color=color,
+        background_color=(0, 0, 0, 0),
         size_hint_y=None,
         height=dp(44),
         **kw
     )
+    with b.canvas.before:
+        fill = Color(*color)
+        shape = RoundedRectangle(pos=b.pos, size=b.size, radius=[dp(14)])
+    def redraw(*_):
+        shape.pos, shape.size = b.pos, b.size
+        fill.rgba = tuple(c * 0.82 for c in color[:3]) + (color[3],) if b.state == "down" else color
+    b.bind(pos=redraw, size=redraw, state=redraw)
     b.bind(on_release=lambda *_: callback())
     return b
 
@@ -169,7 +176,7 @@ class PersianInput(TextInput):
 
 
 def field(hint="", password=False, multiline=False):
-    return PersianInput(
+    widget = PersianInput(
         hint_text=hint,
         password=password,
         allow_copy=not password,
@@ -179,13 +186,24 @@ def field(hint="", password=False, multiline=False):
         multiline=multiline,
         font_name=FONT,
         font_size=dp(16),
-        background_color=(0.12, 0.18, 0.23, 1),
+        background_normal="",
+        background_active="",
+        background_color=(0, 0, 0, 0),
         foreground_color=TEXT,
         cursor_color=BLUE,
         padding=[dp(12), dp(12)],
         size_hint_y=None,
         height=dp(48) if not multiline else dp(120),
     )
+    background = InstructionGroup()
+    background.add(Color(0.12, 0.17, 0.22, 1))
+    shape = RoundedRectangle(pos=widget.pos, size=widget.size, radius=[dp(18)])
+    background.add(shape)
+    widget.canvas.before.insert(0, background)
+    def redraw(*_):
+        shape.pos, shape.size = widget.pos, widget.size
+    widget.bind(pos=redraw, size=redraw)
+    return widget
 
 
 class MehrApp(App):
@@ -256,6 +274,10 @@ class MehrApp(App):
             self.compose.text = draft
             if chat:
                 self.select(chat)
+        elif self.engine and hasattr(self, "body"):
+            self.layout_panes()
+            self._view_signature = None
+            self.refresh()
 
     def data_path(self):
         if platform == "android":
@@ -408,15 +430,16 @@ class MehrApp(App):
         self.view_limit = 100
         self._view_signature = None
         self._sidebar_signature = None
-        body = BoxLayout(spacing=dp(1))
+        body = self.body = BoxLayout(spacing=0)
+        self.mobile_view = "list"
         self.sidebar = Surface(
             orientation="vertical",
             size_hint_x=None,
-            width=dp(320),
-            padding=dp(10),
-            spacing=dp(4),
+            width=dp(340),
+            padding=[dp(8), dp(8)],
+            spacing=dp(8),
         )
-        toolbar = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
+        toolbar = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
         toolbar.add_widget(
             button(
                 tr("منو"),
@@ -426,10 +449,11 @@ class MehrApp(App):
                 background_color=PANEL,
             )
         )
-        toolbar.add_widget(label(tr("گفتگوها")))
+        toolbar.add_widget(label(tr("گفتگوها"), bold=True, font_size=dp(21)))
         toolbar.add_widget(button("+", self.new_menu, size_hint_x=None, width=dp(44)))
         self.sidebar.add_widget(toolbar)
         self.search = field(tr("جستجو"))
+        self.search.height = dp(42)
         self.search.bind(text=lambda *_: self.refresh())
         self.sidebar.add_widget(self.search)
         scroll = ScrollView()
@@ -454,9 +478,15 @@ class MehrApp(App):
                     background_color=PANEL,
                 )
             )
+        self.chat_avatar = Avatar(tr("مهر"), self.engine.me, size=(dp(42), dp(42)), pos_hint={"center_y": 0.5})
+        header.add_widget(self.chat_avatar)
         titles = BoxLayout(orientation="vertical")
-        self.heading = label(tr("مهر"), halign=alignment())
+        self.heading = label(tr("مهر"), halign=alignment(), bold=True, shorten=True, shorten_from="right")
         self.statuslabel = label(tr("آفلاین"), font_size=dp(11))
+        for title in (self.heading, self.statuslabel):
+            title.bind(size=lambda w, size: setattr(w, "text_size", size))
+            title.shorten = True
+        self.statuslabel.color = (0.53, 0.75, 0.87, 1)
         titles.add_widget(self.heading)
         titles.add_widget(self.statuslabel)
         header.add_widget(titles)
@@ -475,7 +505,7 @@ class MehrApp(App):
             orientation="vertical",
             size_hint_y=None,
             spacing=dp(8),
-            padding=[dp(20), dp(20)],
+            padding=[dp(10), dp(16)],
         )
         self.messagebox.bind(minimum_height=self.messagebox.setter("height"))
         wrap = BoxLayout(orientation="vertical", size_hint_y=None)
@@ -490,7 +520,7 @@ class MehrApp(App):
         self.messagescroll.add_widget(wrap)
         self.mainpane.add_widget(self.messagescroll)
         composer = Surface(
-            size_hint_y=None, height=dp(68), padding=dp(10), spacing=dp(7)
+            size_hint_y=None, height=dp(68), padding=dp(8), spacing=dp(6)
         )
         composer.add_widget(
             button(
@@ -498,7 +528,7 @@ class MehrApp(App):
             )
         )
         self.compose = field(tr("پیام"), multiline=True)
-        self.compose.height = dp(48)
+        self.compose.height = dp(50)
         self.compose.bind(
             text=lambda w, t: setattr(
                 w, "halign", "right" if re.search(r"[\u0600-\u06ff]", t) else "left"
@@ -508,22 +538,31 @@ class MehrApp(App):
         composer.add_widget(button(tr("ارسال"), self.send, size_hint_x=None, width=dp(70)))
         self.mainpane.add_widget(composer)
         body.add_widget(self.mainpane)
-        if language() == "fa":
-            body.remove_widget(self.sidebar)
-            body.add_widget(self.sidebar)
         self.rootbox.add_widget(body)
-        if self.mobile:
-            self.show_chat_list()
+        self.layout_panes()
         self.refresh()
 
+    def layout_panes(self):
+        # Invisible size_hint=0 children still keep their previous minimum width.
+        # Mount only the active pane on phones so it cannot displace the other.
+        self.body.clear_widgets()
+        self.sidebar.opacity = self.mainpane.opacity = 1
+        self.sidebar.disabled = self.mainpane.disabled = False
+        if self.mobile:
+            pane = self.sidebar if self.mobile_view == "list" else self.mainpane
+            pane.size_hint_x = 1
+            self.body.add_widget(pane)
+        else:
+            self.sidebar.size_hint_x = None
+            self.sidebar.width = dp(340)
+            self.mainpane.size_hint_x = 1
+            panes = (self.mainpane, self.sidebar) if language() == "fa" else (self.sidebar, self.mainpane)
+            for pane in panes:
+                self.body.add_widget(pane)
+
     def show_chat_list(self):
-        self.sidebar.size_hint_x = 1
-        self.sidebar.width = Window.width
-        self.sidebar.opacity = 1
-        self.sidebar.disabled = False
-        self.mainpane.size_hint_x = 0
-        self.mainpane.opacity = 0
-        self.mainpane.disabled = True
+        self.mobile_view = "list"
+        self.layout_panes()
 
     def chats(self):
         d = self.engine.d
@@ -589,15 +628,15 @@ class MehrApp(App):
                 )
             row = ChatRow(
                 size_hint_y=None,
-                height=dp(76),
+                height=dp(78),
                 padding=dp(10),
                 spacing=dp(10),
-                color=(0.16, 0.32, 0.43, 1) if cid == self.chat else PANEL,
+                color=(0.15, 0.27, 0.36, 1) if cid == self.chat and not self.mobile else PANEL,
             )
             row.bind(on_release=lambda _, c=cid: self.select(c))
             row.add_widget(Avatar(name, cid, pos_hint={"center_y": 0.5}))
             column = BoxLayout(orientation="vertical", spacing=dp(3))
-            title = label(name, halign=alignment(), shorten=True, shorten_from="right")
+            title = label(name, halign=alignment(), shorten=True, shorten_from="right", bold=True, font_size=dp(17))
             subtitle = label(
                 preview.replace("\n", " "),
                 halign=alignment(),
@@ -621,6 +660,11 @@ class MehrApp(App):
                 )
                 stamp.color = (0.61, 0.69, 0.75, 1)
                 row.add_widget(stamp)
+            if language() == "fa":
+                children = list(row.children)
+                row.clear_widgets()
+                for child in children:
+                    row.add_widget(child)
             self.chatlist.add_widget(row)
 
     def select(self, cid):
@@ -632,12 +676,8 @@ class MehrApp(App):
         self._view_signature = None
         self.view_limit = 100
         if self.mobile:
-            self.sidebar.size_hint_x = 0
-            self.sidebar.opacity = 0
-            self.sidebar.disabled = True
-            self.mainpane.size_hint_x = 1
-            self.mainpane.opacity = 1
-            self.mainpane.disabled = False
+            self.mobile_view = "chat"
+            self.layout_panes()
         self.refresh()
 
     def remember_draft(self):
@@ -653,9 +693,11 @@ class MehrApp(App):
         if self._locking or not self.engine or not hasattr(self, "messagebox"):
             return
         with self.engine.lock:
-            self.statuslabel.text = fa(tr(self.engine.status))
+            self.statuslabel.text = fa(tr(self.engine.status) + "  ·  E2EE")
             self.refresh_sidebar()
-            self.heading.text = fa(dict(self.chats()).get(self.chat, tr("مهر")))
+            name = dict(self.chats()).get(self.chat, tr("مهر"))
+            self.heading.text = fa(name)
+            self.chat_avatar.children[0].text = fa(name.strip()[:1])
             messages = [
                 m
                 for m in self.engine.d["messages"].get(self.chat, [])
@@ -664,6 +706,7 @@ class MehrApp(App):
             signature = (
                 self.chat,
                 self.view_limit,
+                round(self.mainpane.width),
                 tuple((m["id"], m["state"]) for m in messages),
             )
             if signature == self._view_signature:
@@ -682,9 +725,20 @@ class MehrApp(App):
 
                 self.messagebox.add_widget(button(tr("پیام‌های قبلی"), more))
             available = max(
-                dp(240), Window.width - (0 if self.mobile else dp(320)) - dp(60)
+                dp(180), Window.width - (0 if self.mobile else dp(340)) - dp(20)
             )
+            previous_day = None
             for m in messages[-self.view_limit :]:
+                day = time.strftime("%Y-%m-%d", time.localtime(m["created"]))
+                if day != previous_day:
+                    date_row = BoxLayout(size_hint_y=None, height=dp(34), padding=[0, dp(3)])
+                    date_row.add_widget(Label())
+                    chip = Surface(size_hint_x=None, width=dp(110), color=(0.12, 0.19, 0.23, 1))
+                    chip.add_widget(label(day, font_size=dp(11)))
+                    date_row.add_widget(chip)
+                    date_row.add_widget(Label())
+                    self.messagebox.add_widget(date_row)
+                    previous_day = day
                 own = m["author"] == self.engine.me
                 text = (
                     m.get("text", "")
@@ -699,11 +753,11 @@ class MehrApp(App):
                     )
                     for line in text.split("\n")
                 )
-                height = dp(57 + 24 * max(1, len(wrapped.split("\n"))))
+                height = dp(34 + 23 * max(1, len(wrapped.split("\n"))))
                 width = min(
                     available * 0.82,
                     max(
-                        dp(190),
+                        dp(125),
                         dp(
                             28
                             + min(
@@ -722,7 +776,7 @@ class MehrApp(App):
                     padding=[dp(12), dp(7)],
                     size_hint_x=None,
                     width=width,
-                    color=(0.16, 0.33, 0.40, 1) if own else PANEL,
+                    color=(0.16, 0.31, 0.38, 1) if own else (0.13, 0.18, 0.23, 1),
                 )
                 if self.chat in self.engine.d["groups"]:
                     bubble.add_widget(
@@ -739,9 +793,8 @@ class MehrApp(App):
                 bubble.add_widget(display)
                 footer = BoxLayout(size_hint_y=None, height=dp(23))
                 stamp = time.strftime("%H:%M", time.localtime(m["created"]))
-                footer.add_widget(
-                    label(stamp + "  " + (tr(m["state"]) if own else ""), font_size=dp(10))
-                )
+                state = ("✓✓" if m["state"] == "تحویل شد" else "✓" if m["state"] == "به سرور رسید" else "…") if own else ""
+                footer.add_widget(label(stamp + "  " + state, font_size=dp(10)))
                 menu = button(
                     "...",
                     lambda mid=m["id"]: self.message_menu(mid),
@@ -886,14 +939,21 @@ class MehrApp(App):
             box.add_widget(button(title + (" ✓" if current_ttl == seconds else ""), ttl))
         if chat in self.engine.d["groups"]:
             group = self.engine.d["groups"][chat]["body"]
+            box.add_widget(wrapped_label(tr("ارسال گروهی فقط پس از تأیید مستقل همه اعضا مجاز است")))
+            box.add_widget(label(tr("کد امنیت گروه"), size_hint_y=None, height=dp(32)))
+            code = self.engine.groups.safety_code(self.engine.d["groups"][chat])
+            box.add_widget(wrapped_label(" ".join(code[i:i+4] for i in range(0, len(code), 4))))
+            box.add_widget(wrapped_label(tr("این کد را با اعضا از مسیر مطمئن مقایسه کنید؛ با تغییر عضویت تغییر می‌کند")))
             for peer in group["members"]:
+                verified = peer == self.engine.me or peer in self.engine.d["contacts"]
                 box.add_widget(
                     label(
-                        self.engine.peer_card(peer)["body"]["name"],
+                        self.engine.peer_card(peer)["body"]["name"] + "  ·  " + tr("تأییدشده" if verified else "نیازمند تأیید"),
                         size_hint_y=None,
                         height=dp(25),
                     )
                 )
+                box.add_widget(wrapped_label(" ".join(peer[i:i+8] for i in range(0, len(peer), 8))))
             if group["owner"] == self.engine.me:
                 box.add_widget(
                     button(

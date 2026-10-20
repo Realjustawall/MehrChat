@@ -19,6 +19,47 @@ PASSWORD = "CI-only temporary test password"
 TEXT = "سلام، آزمون پیام فارسی"
 
 
+def check_layout_matrix(app, done):
+    """Inspect live geometry after layout ticks, not only nonempty screenshots."""
+    from kivy.core.window import Window
+    from kivy.metrics import dp
+    from .ui import platform
+    original_size = Window.size
+    original_language = language()
+    chat = next(cid for cid, _ in app.chats())
+    sizes = [original_size] if platform == 'android' else [(dp(320), dp(568)), (dp(390), dp(760)), (dp(540), dp(760)), (dp(1100), dp(760))]
+    tasks = [(size, locale, mode) for size in sizes for locale in ('fa', 'en') for mode in ('list', 'chat')]
+
+    def step(*_):
+        if not tasks:
+            Window.size = original_size
+            if language() != original_language:
+                app.change_language()
+            app.show_chat_list()
+            Clock.schedule_once(lambda *_: done(), 0.15)
+            return
+        size, locale, mode = tasks.pop(0)
+        Window.size = size
+        if language() != locale:
+            app.change_language()
+        app.select(chat) if mode == 'chat' else app.show_chat_list()
+
+        def inspect(*_):
+            panes = [app.sidebar, app.mainpane] if not app.mobile else [app.sidebar if mode == 'list' else app.mainpane]
+            for pane in panes:
+                assert pane.parent is app.body, ('unmounted pane', locale, mode)
+                assert -1 <= pane.x and pane.right <= Window.width + 1, ('pane overflow', locale, mode, pane.pos, pane.size, Window.size)
+                for widget in pane.walk():
+                    if isinstance(widget, (Button, TextInput)):
+                        assert widget.x >= -1 and widget.right <= Window.width + 1, ('control overflow', locale, mode, getattr(widget, 'text', ''), widget.pos, widget.size)
+                        assert widget.width > 1, ('collapsed control', locale, mode)
+            if app.mobile:
+                assert len(app.body.children) == 1
+            Clock.schedule_once(step, 0)
+        Clock.schedule_once(inspect, 0.15)
+    step()
+
+
 def install(app, result_path):
     deadline = time.monotonic() + 35
     config_path = os.environ.get("MEHRCHAT_SMOKE_NETWORK_CONFIG")
@@ -194,6 +235,12 @@ def install(app, result_path):
                     popup.dismiss()
 
                 def finish(*_):
+                    if not getattr(app, '_layout_matrix_complete', False):
+                        def checked():
+                            app._layout_matrix_complete = True
+                            finish()
+                        check_layout_matrix(app, checked)
+                        return
                     assert len(app.chatlist.children) == len(app.chats())
                     for row in app.chatlist.children:
                         for widget in row.walk():
@@ -224,6 +271,7 @@ def install(app, result_path):
                         bilingual_switch_preserves_drafts=True,
                         screen_protection_ready=app.screen_protected,
                         lock_scrubs_text_and_undo=True,
+                        viewport_controls_inside_screen=True,
                     )
                     if network:
                         result["tcp_noise_e2ee_request_reply"] = True

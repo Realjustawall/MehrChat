@@ -251,11 +251,11 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const tag = `v0.3.0-rc1-ci.${context.runNumber}`;
+            const tag = `v0.3.1-rc1-ci.${context.runNumber}`;
             const commit = context.payload.pull_request?.head.sha || context.sha;
             const release = await github.rest.repos.createRelease({
               ...context.repo, tag_name: tag, target_commitish: commit,
-              name: `MehrChat 0.3.0-rc1 — CI ${context.runNumber}`,
+              name: `MehrChat 0.3.1-rc1 — CI ${context.runNumber}`,
               draft: false, prerelease: true,
               body: `Tested Windows/Linux clients and relay servers, plus Android test and unsigned release APKs.\n\nSource: ${commit}\nValidation: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\nRelease APKs are unsigned and require the owner's signing key. Debug APKs are for testing. This candidate has not received an independent security audit.`
             });

@@ -18,3 +18,7 @@ Version **0.3.0-rc1** is independently unaudited. Release APKs require the owner
 Security hardening in 0.3.0 includes required local SOCKS5 mode with proxy-side destination DNS and no direct fallback, Android secure-screen/overlay protection, configurable 30/60/300-second idle lock (default 60), padded Noise records, bounded relay admission/registration/retraction state, and UI text/undo cleanup on lock. The relay admin page is also available in Persian and English.
 
 The proxy is supplied and operated by the user; Tor is not bundled or started automatically. Direct mode remains available for domestic/offline networks. This is not an anonymity guarantee or protection against a compromised OS.
+
+
+### 0.3.1 candidate
+Mobile pane overflow is fixed in Persian and English. Rounded controls, chat avatars, date separators, message bubbles and delivery ticks refine the Telegram-inspired interface. Group sends now require independent verification of every recipient; membership removal cancels queued deliveries locally. Compare group safety codes in chat information after membership changes. See SECURITY.md for compatibility and limits.

@@ -181,12 +181,37 @@ class Engine:
             self.send(chat, "گروه ساخته شد", kind="group")
         return chat
 
+    def cancel_removed_deliveries(self, chat, descriptor):
+        """Do not flush previously queued group content to removed recipients.
+
+        Pairwise sessions may also serve private chats, so do not reset or erase
+        them. Previously delivered copies cannot be revoked by this operation.
+        """
+        members = set(descriptor["body"]["members"])
+        def removed(peer):
+            return self.me not in members or peer not in members
+        abandoned = [p for p in self.d["outbox"] if p["chat"] == chat
+                     and removed(p["item"]["body"]["to"])
+                     and p["item"]["body"]["kind"] != "group_update"]
+        for entry in abandoned:
+            cap = entry["item"]["body"].get("delete_cap")
+            if cap:
+                body = signed(self.identity, dict(v=2, kind="retract", id=uuid.uuid4().hex,
+                    sender=self.me, to=self.me, expires=int(time.time()) + 90 * 86400,
+                    proofs=[{"card": self.card, "cap": cap}]))
+                self.d["pending_retractions"]["membership:" + entry["item"]["body"]["id"]] = {"item": body, "routes": []}
+        self.d["outbox"] = [p for p in self.d["outbox"] if p not in abandoned]
+        for peer, entries in self.d["pending_secure"].items():
+            if removed(peer):
+                self.d["pending_secure"][peer] = [p for p in entries if p["chat"] != chat or p["kind"] == "group_update"]
+
     def update_group(self, chat, name, members):
         with self.transaction():
             old = self.d["groups"][chat]
             group = self.groups.make(name, members, chat)
             recipients = set(old["body"]["members"]) | set(group["body"]["members"])
             self.d["groups"][chat] = group
+            self.cancel_removed_deliveries(chat, group)
             now = int(time.time())
             payload = dict(
                 id=uuid.uuid4().hex,
@@ -225,6 +250,7 @@ class Engine:
                 raise ValueError("زمان نامعتبر است")
             descriptor = self.descriptor(chat)
             _, members, _ = self.validate_chat(descriptor, self.me)
+            self.groups.require_verified(descriptor)
             if len(text) > 16000:
                 raise ValueError("پیام طولانی است")
             now = int(time.time())
@@ -355,7 +381,11 @@ class Engine:
                 payload["chat"], sender, payload["kind"] == "group_update"
             )
             if group:
+                known = self.d["groups"].get(chat)
+                if known is None and sender != payload["chat"]["body"]["owner"]:
+                    raise ValueError("Only the creator can introduce a group")
                 self.d["groups"][chat] = payload["chat"]
+                self.cancel_removed_deliveries(chat, payload["chat"])
             if payload["kind"] == "group_update":
                 if not group or sender != payload["chat"]["body"]["owner"]:
                     raise ValueError("Invalid group update")
