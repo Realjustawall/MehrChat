@@ -542,6 +542,8 @@ class Engine:
     def configure_relays(self, relays):
         if len(relays) > 5:
             raise ValueError("حداکثر ۵ سرور")
+        from .connection import validate_profile
+        relays = [validate_profile(r) for r in relays]
         for r in relays:
             if (
                 not isinstance(r["host"], str)
@@ -626,6 +628,8 @@ class Engine:
                     relay["pin"],
                     self.identity,
                     self.card,
+                    transport=relay.get("transport", "noise"),
+                    ca=relay.get("ca", ""),
                 )
                 self.connected[route] = False
                 self.connection_errors.pop(route, None)

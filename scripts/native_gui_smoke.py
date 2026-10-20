@@ -13,6 +13,9 @@ with tempfile.TemporaryDirectory() as directory:
     env = os.environ.copy()
     env["MEHRCHAT_SMOKE_TEST"] = "flow"
     env["MEHRCHAT_SMOKE_RESULT"] = str(result)
+    gallery = root / "reports/ui" / ("windows" if os.name == "nt" else "linux")
+    gallery.mkdir(parents=True, exist_ok=True)
+    env["MEHRCHAT_SMOKE_GALLERY"] = str(gallery)
     logfile = Path(directory) / "gui.log"
     env["MEHRCHAT_SMOKE_LOG"] = str(logfile)
     if os.name == "nt":
@@ -24,7 +27,7 @@ with tempfile.TemporaryDirectory() as directory:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            timeout=60,
+            timeout=90,
         )
         print(run.stdout)
     finally:

@@ -5,6 +5,8 @@ Always uses a temporary vault; never reads the interactive user's account.
 import io, json, os, time
 from pathlib import Path
 from kivy.clock import Clock
+from kivy.core.window import Window
+from kivy.graphics import Fbo, ClearColor, ClearBuffers, Scale, Translate
 from kivy.core.image import Image as CoreImage
 from kivy.uix.button import Button
 from kivy.uix.checkbox import CheckBox
@@ -19,7 +21,39 @@ TEXT = "سلام، آزمون پیام فارسی"
 
 
 def install(app, result_path):
-    deadline = time.monotonic() + 35
+    app.test_mode = True
+    deadline = time.monotonic() + 65
+    gallery = os.environ.get("MEHRCHAT_SMOKE_GALLERY")
+    gallery = Path(gallery) if gallery else None
+    if gallery:
+        gallery.mkdir(parents=True, exist_ok=True)
+    def capture(name):
+        if gallery:
+            target = gallery / (name + ".png")
+            # Render the actual top-level canvases, including popups, into an FBO.
+            # ANGLE can return a black image when reading the default framebuffer.
+            layers = sorted((Window.canvas.indexof(w.canvas), w.canvas) for w in Window.children
+                            if Window.canvas.indexof(w.canvas) >= 0)
+            fbo = Fbo(size=Window.size, with_stencilbuffer=True)
+            with fbo:
+                ClearColor(*Window.clearcolor)
+                ClearBuffers()
+                Scale(1, -1, 1)
+                Translate(0, -Window.height, 0)
+            try:
+                for _, canvas in layers:
+                    Window.canvas.remove(canvas)
+                    fbo.add(canvas)
+                fbo.draw()
+                pixels = fbo.texture.pixels
+                colors = {pixels[i:i+3] for i in range(0, len(pixels), 4 * 37)}
+                assert len(colors) > 32, "UI gallery capture is blank: " + name
+                CoreImage(fbo.texture).save(str(target))
+            finally:
+                for index, canvas in layers:
+                    fbo.remove(canvas)
+                    Window.canvas.insert(index, canvas)
+                Window.canvas.ask_update()
     config_path = os.environ.get("MEHRCHAT_SMOKE_NETWORK_CONFIG")
     network = json.loads(Path(config_path).read_text()) if config_path else None
 
@@ -113,21 +147,29 @@ def install(app, result_path):
         app.select(group)
         assert app.compose.text == group_draft
         steps = [
-            app.settings,
-            app.profile_dialog,
-            app.password_dialog,
-            app.my_card,
-            app.contact_dialog,
-            lambda: app.group_dialog(group),
-            app.chat_info,
+            ("03-private-chat", lambda: app.select(chat)),
+            ("04-group-chat", lambda: app.select(group)),
+            ("05-chat-list", app.show_chat_list if app.mobile else lambda: None),
+            ("06-connection-settings", app.settings),
+            ("07-profile", app.profile_dialog),
+            ("08-password", app.password_dialog),
+            ("09-identity-card", app.my_card),
+            ("10-add-contact", app.contact_dialog),
+            ("11-edit-group", lambda: app.group_dialog(group)),
+            ("12-chat-info", app.chat_info),
         ]
+        pending_capture = None
 
         def next_step(*_):
+            nonlocal pending_capture
+            if pending_capture:
+                capture(pending_capture)
             for popup in list(app.open_popups):
                 popup.dismiss()
             if steps:
-                steps.pop(0)()
-                Clock.schedule_once(next_step, 0.15)
+                pending_capture, action = steps.pop(0)
+                action()
+                Clock.schedule_once(next_step, 0.35 if gallery else 0.15)
                 return
             raw = app.vault_path.read_bytes()
             assert TEXT.encode() not in raw and PASSWORD.encode() not in raw
@@ -190,7 +232,18 @@ def install(app, result_path):
                         pixels = CoreImage(screenshot).texture.pixels
                         colors = {pixels[i:i + 3] for i in range(0, len(pixels), 4 * 37)}
                         assert len(colors) > 32, "The captured UI must not be blank"
+                    # A hidden fixed-width sidebar must not push the mobile chat off-screen.
+                    app.mobile = True
+                    body = app.sidebar.parent
+                    app.show_chat_list()
+                    body.do_layout()
+                    assert app.mainpane.width == 0
+                    app.select(chat)
+                    body.do_layout()
+                    assert app.sidebar.width == 0
+                    assert app.mainpane.right <= app.root.width + 1
                     result = dict(
+                        responsive_navigation=True,
                         account_creation=True,
                         compiled_double_ratchet=True,
                         persian_chat=True,
@@ -234,4 +287,17 @@ def install(app, result_path):
             Clock.schedule_once(next_step, 0.2)
         return False
 
-    Clock.schedule_once(login, 0.3)
+    def gallery_start(*_):
+        if not gallery:
+            login()
+            return
+        app.connection_screen()
+        def connection_shown(*_):
+            capture("01-connect")
+            app.unlock_screen()
+            def login_shown(*_):
+                capture("02-login")
+                login()
+            Clock.schedule_once(login_shown, .35)
+        Clock.schedule_once(connection_shown, .35)
+    Clock.schedule_once(gallery_start, 0.3)
