@@ -100,6 +100,15 @@ class BackupSafetyTests(unittest.TestCase):
             self.vault.backup(target)
         self.assertEqual(target.read_bytes(), b"an existing important file")
 
+    def test_backup_export_and_restore_share_the_same_size_bound(self):
+        target = self.root / "too-large.mcv"
+        with patch("mehrchat.vault.MAX_BACKUP_BYTES", len(self.raw) - 1):
+            with self.assertRaises(ValueError):
+                self.vault.backup(target)
+            with self.assertRaises(ValueError):
+                Vault.restore_bytes(self.raw, target, PASSWORD)
+        self.assertFalse(target.exists())
+
     def test_backup_failure_does_not_leave_partial_backup(self):
         target = self.root / "backup.mcv"
         # The source save must succeed; fail the destination backup's fsync.

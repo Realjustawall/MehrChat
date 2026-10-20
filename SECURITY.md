@@ -24,6 +24,8 @@ Desktop uninstallation preserves the external vault path. Android uninstall dele
 
 Backup restoration authenticates and validates basic account structure before publication, takes the destination account's exclusive lock and retains it for the restored session. Existing accounts are never overwritten. A failed password attempt releases its lock explicitly. Desktop backup export uses exclusive creation and removes partial output on write failure. Password changes invalidate the backup reminder marker; old backups retain their old password. Encrypted per-chat drafts are isolated when switching recipients and saved before lock. File export rechecks the live account, message existence and expiry after the document picker returns.
 
+Backup export and restore share a 1 GiB limit; export rejects larger snapshots rather than creating an unsupported backup. The whole-vault format still requires enough RAM for encoding, decryption and the decoded state. Large histories and group fanout can exceed practical mobile memory limits; the size bound is not a claim that every phone can restore a 1 GiB account.
+
 Release gates: independent review, physical Android/native target tests, domestic cross-operator trials, abuse/load testing and owner-controlled signing. APK inspection checks pinned versions, foreign-architecture libraries, 16 KiB ELF alignment and backup/debug settings. Emulator startup is separate from physical-device validation.
 
 References: https://signal.org/docs/specifications/doubleratchet/ ; https://python-doubleratchet.readthedocs.io/ ; https://noiseprotocol.org/noise.html ; https://pynacl.readthedocs.io/

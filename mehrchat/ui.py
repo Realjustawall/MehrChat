@@ -28,7 +28,7 @@ from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
 from kivy.utils import platform
-from .vault import Vault
+from .vault import Vault, MAX_BACKUP_BYTES
 from .client import Engine, safe_filename
 from .crypto import public_card, check_card
 
@@ -1053,8 +1053,7 @@ class MehrApp(App):
             if self.engine is not engine:
                 raise ValueError("حساب قفل شده است")
             with engine.lock:
-                engine.vault.save()
-                f.write(self.vault_path.read_bytes())
+                f.write(engine.vault.backup_bytes())
                 f.flush()
                 with engine.transaction():
                     engine.d["backup_last_at"] = int(time.time())
@@ -1069,9 +1068,9 @@ class MehrApp(App):
             return
 
         def load(f):
-            raw = f.read(128 * 1024 * 1024 + 1)
-            if len(raw) > 128 * 1024 * 1024:
-                raise ValueError("حجم پشتیبان بیش از حد مجاز است")
+            raw = f.read(MAX_BACKUP_BYTES + 1)
+            if len(raw) > MAX_BACKUP_BYTES:
+                raise ValueError("حداکثر حجم پشتیبان ۱ گیگابایت است")
             box = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
             pw = field("رمز پشتیبان", password=True)
             box.add_widget(pw)

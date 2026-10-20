@@ -10,6 +10,7 @@ from nacl.utils import random
 from .crypto import pack, enc, dec, derive, create_identity, public_card, check_card
 
 MAGIC = b"MEHRVAULT1\0"
+MAX_BACKUP_BYTES = 1024 * 1024 * 1024
 
 
 class Vault:
@@ -128,8 +129,16 @@ class Vault:
         if stream is not None:
             stream.close()
 
-    def backup(self, destination):
+    def backup_bytes(self):
         self.save()
+        with self.path.open("rb") as source:
+            raw = source.read(MAX_BACKUP_BYTES + 1)
+        if len(raw) > MAX_BACKUP_BYTES:
+            raise ValueError("حداکثر حجم پشتیبان ۱ گیگابایت است")
+        return raw
+
+    def backup(self, destination):
+        raw = self.backup_bytes()
         target = Path(destination)
         if target.resolve() == self.path.resolve():
             raise ValueError("Choose a different backup path")
@@ -139,7 +148,7 @@ class Vault:
             with stream:
                 if os.name != "nt":
                     os.fchmod(stream.fileno(), 0o600)
-                stream.write(self.path.read_bytes())
+                stream.write(raw)
                 stream.flush()
                 os.fsync(stream.fileno())
         except BaseException:
@@ -149,15 +158,15 @@ class Vault:
     @classmethod
     def restore(cls, source, destination, password):
         with Path(source).open("rb") as stream:
-            raw = stream.read(128 * 1024 * 1024 + 1)
+            raw = stream.read(MAX_BACKUP_BYTES + 1)
         return cls.restore_bytes(raw, destination, password)
 
     @classmethod
     def restore_bytes(cls, raw, destination, password):
         # Authenticate before publication, then retain the destination account lock.
         # A private staging filename alone does not lock the live account path.
-        if len(raw) > 128 * 1024 * 1024:
-            raise ValueError("حجم پشتیبان بیش از حد مجاز است")
+        if len(raw) > MAX_BACKUP_BYTES:
+            raise ValueError("حداکثر حجم پشتیبان ۱ گیگابایت است")
         if not raw.startswith(MAGIC):
             raise ValueError("فایل پشتیبان معتبر نیست")
         salt = raw[len(MAGIC) : len(MAGIC) + argon2id.SALTBYTES]
