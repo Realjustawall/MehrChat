@@ -12,12 +12,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 from .crypto import create_identity, public_card, check_card, verify, pack
 from .wire import accept
+from .limits import AdmissionLimiter
 
 # A 4 MiB attachment is base64 inside encrypted JSON and the ciphertext is
 # base64 again. Allow the signed 32-member/64-epoch descriptor as well.
 MAX_CIPHER = 12 * 1024 * 1024
 MAX_CONTROL_CIPHER = 4 * 1024 * 1024
 CLOCK_SKEW = 300
+MAX_USERS = 100000
+MAX_RETRACTIONS = 500000
+MAX_ROUTE_RETRACTIONS = 10000
 
 
 class Relay:
@@ -56,14 +60,20 @@ class Relay:
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS retractions (id TEXT, sender TEXT, recipient TEXT, expires INTEGER, PRIMARY KEY(id,sender,recipient))"
         )
+        self.db.execute("CREATE INDEX IF NOT EXISTS retraction_route ON retractions(sender,recipient)")
         self.db.commit()
         self.live_cards = {}
         self.active = set()
         self.connections = 0
         self.events = {}
+        self.admission = AdmissionLimiter()
+        self.global_admission = AdmissionLimiter(rate=8, burst=64, capacity=1)
 
     def register(self, card):
         b = check_card(card)
+        if (not self.db.execute("SELECT 1 FROM users WHERE id=?", (b["id"],)).fetchone()
+                and self.db.execute("SELECT count(*) FROM users").fetchone()[0] >= MAX_USERS):
+            raise ValueError("Registration capacity reached")
         try:
             with self.db:
                 self.db.execute(
@@ -107,6 +117,18 @@ class Relay:
             verified.append(cap)
         with self.db:
             for cap in verified:
+                existing = self.db.execute(
+                    "SELECT 1 FROM retractions WHERE id=? AND sender=? AND recipient=?",
+                    (cap["id"], cap["sender"], cap["to"]),
+                ).fetchone()
+                if not existing:
+                    total = self.db.execute("SELECT count(*) FROM retractions").fetchone()[0]
+                    route = self.db.execute(
+                        "SELECT count(*) FROM retractions WHERE sender=? AND recipient=?",
+                        (cap["sender"], cap["to"]),
+                    ).fetchone()[0]
+                    if total >= MAX_RETRACTIONS or route >= MAX_ROUTE_RETRACTIONS:
+                        raise ValueError("Retraction capacity reached")
                 self.db.execute(
                     "DELETE FROM queue WHERE id=? AND sender=? AND recipient=?",
                     (cap["id"], cap["sender"], cap["to"]),
@@ -221,7 +243,10 @@ class Relay:
         return {"ok": True}
 
     async def handle(self, reader, writer):
-        if self.connections >= 64:
+        peer = writer.get_extra_info("peername")
+        address = str(peer[0]) if peer else "unknown"
+        if (self.connections >= 64 or not self.global_admission.allow("all")
+                or not self.admission.allow(address)):
             writer.close()
             return
         self.connections += 1
@@ -312,6 +337,19 @@ class Relay:
         relay = self
 
         class Handler(BaseHTTPRequestHandler):
+            def setup(self):
+                super().setup()
+                self.connection.settimeout(5)
+
+            def end_headers(self):
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Referrer-Policy", "no-referrer")
+                super().end_headers()
+
+            def english(self):
+                from urllib.parse import parse_qs, urlsplit
+                return parse_qs(urlsplit(self.path).query).get("lang") == ["en"]
+
             def log_message(self, *_):
                 pass
 
@@ -331,6 +369,15 @@ class Relay:
 <h1>تنظیمات سرور</h1><form method="post"><p>رمز مدیریت</p><input type="password" name="token" required autocomplete="off"><p><label><input type="checkbox" name="files" value="yes">فعال‌سازی ارسال فایل</label></p><button>ذخیره</button></form><p>حداکثر حجم فایل: ۴ مگابایت</p></html>"""
                 if relay.settings()["files_enabled"]:
                     html = html.replace('value="yes"', 'value="yes" checked')
+                html += '<p><a href="/?lang=fa">فارسی</a> | <a href="/?lang=en">English</a></p>'
+                if self.english():
+                    for fa, en in {
+                        'lang="fa" dir="rtl"': 'lang="en" dir="ltr"',
+                        'مدیریت مهر': 'Mehr administration', 'تنظیمات سرور': 'Relay settings',
+                        'رمز مدیریت': 'Admin token', 'فعال‌سازی ارسال فایل': 'Enable file transfers',
+                        'ذخیره': 'Save', 'حداکثر حجم فایل: ۴ مگابایت': 'Maximum file size: 4 MiB',
+                    }.items():
+                        html = html.replace(fa, en)
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
@@ -344,13 +391,21 @@ class Relay:
             def do_POST(self):
                 from urllib.parse import parse_qs
 
-                n = int(self.headers.get("Content-Length", "0"))
+                try:
+                    n = int(self.headers.get("Content-Length", "0"))
+                except ValueError:
+                    self.send_error(400)
+                    return
                 if not 0 < n <= 4096:
                     self.send_error(400)
                     return
-                values = parse_qs(self.rfile.read(n).decode())
+                try:
+                    values = parse_qs(self.rfile.read(n).decode(), max_num_fields=4)
+                except (UnicodeError, ValueError):
+                    self.send_error(400)
+                    return
                 if not hmac.compare_digest(
-                    values.get("token", [""])[0], relay.admin_token
+                    values.get("token", [""])[0].encode(), relay.admin_token.encode()
                 ):
                     self.send_error(403)
                     return
@@ -363,7 +418,7 @@ class Relay:
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
-                self.wfile.write("ذخیره شد".encode())
+                self.wfile.write(b"Saved" if self.english() else "ذخیره شد".encode())
 
         server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
         Thread(target=server.serve_forever, daemon=True).start()

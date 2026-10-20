@@ -31,6 +31,8 @@ from kivy.utils import platform
 from .vault import Vault, MAX_BACKUP_BYTES
 from .client import Engine, safe_filename
 from .crypto import public_card, check_card
+from .i18n import EN, tr, language, alignment, load_language, save_language
+from .privacy import protect_android_screen, protect_windows_screen
 
 ROOT = Path(__file__).resolve().parent.parent
 FONT = str(ROOT / "assets" / "Vazirmatn-Regular.ttf")
@@ -84,7 +86,7 @@ def label(text="", **kw):
 
 
 def wrapped_label(text, **kw):
-    widget = label("", halign="right", valign="middle", **kw)
+    widget = label("", halign=alignment(), valign="middle", **kw)
 
     def fit(*_):
         # Wrap logical Persian before bidi shaping; wrapping the visual string
@@ -170,6 +172,10 @@ def field(hint="", password=False, multiline=False):
     return PersianInput(
         hint_text=hint,
         password=password,
+        allow_copy=not password,
+        keyboard_suggestions=False,
+        input_type="null",
+        halign=alignment(),
         multiline=multiline,
         font_name=FONT,
         font_size=dp(16),
@@ -183,11 +189,12 @@ def field(hint="", password=False, multiline=False):
 
 
 class MehrApp(App):
-    title = "مهر"
+    title = tr("مهر")
 
     def build(self):
         Window.clearcolor = BG
         self.engine = None
+        self._locking = False
         self.chat = None
         self.rootbox = BoxLayout(orientation="vertical", padding=0, spacing=0)
         self.open_popups = []
@@ -198,9 +205,42 @@ class MehrApp(App):
         )
         Window.bind(on_resize=self.resize_layout)
         self.vault_path = self.data_path()
+        self.language_path = self.vault_path.parent / "language.json"
+        load_language(self.language_path)
+        self.title = tr("مهر")
+        self.screen_protected = platform != "android"
+        self.login_failures = 0
+        self.login_retry_at = 0
         self.unlock_screen()
+        if platform == "android":
+            try:
+                protect_android_screen(lambda ok: Clock.schedule_once(lambda *_: self.screen_protection_result(ok)))
+            except Exception:
+                self.screen_protection_result(False)
+        elif platform == "win":
+            Clock.schedule_once(lambda *_: protect_windows_screen(), 0.2)
         Clock.schedule_interval(lambda *_: self.tick(), 5)
         return self.rootbox
+
+    def screen_protection_result(self, ok):
+        self.screen_protected = ok
+        if not ok:
+            self.error(tr("حفاظت صفحه فعال نشد؛ حساب باز نمی‌شود"))
+
+    def change_language(self):
+        self.remember_draft()
+        save_language(self.language_path, "en" if language() == "fa" else "fa")
+        self.title = tr("مهر")
+        for popup in list(self.open_popups):
+            popup.dismiss()
+        if self.engine:
+            chat = self.chat
+            self.shell()
+            if chat:
+                self.select(chat)
+                self.compose.text = self.engine.d.get("drafts", {}).get(chat, "")
+        else:
+            self.unlock_screen()
 
     def resize_layout(self, *_):
         if (
@@ -225,6 +265,7 @@ class MehrApp(App):
             title=fa(title), title_font=FONT, content=body, size_hint=(0.94, 0.9)
         )
         self.open_popups.append(popup)
+        popup.bind(on_dismiss=lambda *_: self.scrub_widgets(body))
         popup.bind(
             on_dismiss=lambda *_: (
                 self.open_popups.remove(popup) if popup in self.open_popups else None
@@ -233,11 +274,20 @@ class MehrApp(App):
         popup.open()
         return popup
 
+    @staticmethod
+    def scrub_widgets(root):
+        for widget in root.walk():
+            if isinstance(widget, TextInput):
+                widget.text = ""
+                widget.reset_undo()
+            elif isinstance(widget, Label):
+                widget.text = ""
+
     def error(self, message):
         box = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(12))
-        box.add_widget(wrapped_label(str(message)))
-        pop = self.dialog("پیام", box)
-        box.add_widget(button("بستن", pop.dismiss))
+        box.add_widget(wrapped_label(tr(message)))
+        pop = self.dialog(tr("پیام"), box)
+        box.add_widget(button(tr("بستن"), pop.dismiss))
 
     def guarded(self, fn):
         try:
@@ -245,8 +295,8 @@ class MehrApp(App):
         except Exception as e:
             self.error(
                 str(e)
-                if isinstance(e, ValueError) and re.search(r"[\u0600-\u06ff]", str(e))
-                else "عملیات انجام نشد؛ اطلاعات را بررسی کنید"
+                if isinstance(e, ValueError) and (str(e) in EN or str(e) in EN.values())
+                else tr("عملیات انجام نشد؛ اطلاعات را بررسی کنید")
             )
 
     def unlock_screen(self):
@@ -258,23 +308,34 @@ class MehrApp(App):
             size_hint=(1, None),
             height=dp(500),
         )
-        wrap.add_widget(label("مهر", font_size=dp(38), size_hint_y=None, height=dp(70)))
-        self.username = field("نام کاربری")
-        self.displayname = field("نام نمایشی")
+        wrap.add_widget(label(tr("مهر"), font_size=dp(38), size_hint_y=None, height=dp(70)))
+        self.username = field(tr("نام کاربری"))
+        self.displayname = field(tr("نام نمایشی"))
         if not self.vault_path.exists():
             wrap.add_widget(self.username)
             wrap.add_widget(self.displayname)
-        self.password = field("رمز عبور", password=True)
+        self.password = field(tr("رمز عبور"), password=True)
         wrap.add_widget(self.password)
         self.loginbutton = button(
-            "ورود" if self.vault_path.exists() else "ساخت حساب", self.unlock
+            tr("ورود") if self.vault_path.exists() else tr("ساخت حساب"), self.unlock
         )
         wrap.add_widget(self.loginbutton)
-        wrap.add_widget(button("بازیابی پشتیبان", self.restore_dialog))
+        wrap.add_widget(button(tr("بازیابی پشتیبان"), self.restore_dialog))
+        wrap.add_widget(button("English" if language() == "fa" else "فارسی", self.change_language))
         self.rootbox.add_widget(wrap)
 
     def unlock(self):
+        if self.loginbutton.disabled:
+            return
+        if not self.screen_protected:
+            self.error(tr("حفاظت صفحه فعال نشد؛ حساب باز نمی‌شود"))
+            return
+        if time.monotonic() < self.login_retry_at:
+            self.error(tr("لطفاً پیش از تلاش دوباره کمی صبر کنید"))
+            return
         pw = self.password.text
+        self.password.text = ""
+        self.password.reset_undo()
         user = self.username.text.strip()
         name = self.displayname.text.strip()
         self.loginbutton.disabled = True
@@ -287,17 +348,27 @@ class MehrApp(App):
                 message = (
                     str(exc)
                     if isinstance(exc, ValueError)
-                    else "رمز عبور یا فایل معتبر نیست"
+                    else tr("رمز عبور یا فایل معتبر نیست")
                 )
                 Clock.schedule_once(lambda _, m=message: self.unlock_failed(m))
 
         threading.Thread(target=work, daemon=True).start()
 
     def unlock_failed(self, message):
+        self.login_failures += 1
+        self.login_retry_at = time.monotonic() + min(60, 2 ** min(self.login_failures - 1, 6))
+        self.password.text = ""
         self.loginbutton.disabled = False
         self.error(message)
 
     def enter(self, vault):
+        if not self.screen_protected:
+            vault.close()
+            self.error(tr("حفاظت صفحه فعال نشد؛ حساب باز نمی‌شود"))
+            return
+        self.login_failures = 0
+        self.login_retry_at = 0
+        self._locking = False
         self.password.text = ""
         vault.acquire_lock()
         self.last_activity = time.monotonic()
@@ -311,21 +382,21 @@ class MehrApp(App):
     def backup_reminder(self):
         box = BoxLayout(orientation="vertical", spacing=dp(12), padding=dp(12))
         text = (
-            "برای بازیابی حساب، پشتیبان رمزگذاری‌شده را خارج از برنامه ذخیره کنید.\n"
+            tr("برای بازیابی حساب، پشتیبان رمزگذاری‌شده را خارج از برنامه ذخیره کنید.\n"
             "با حذف برنامه در اندروید، کلید داخل برنامه پاک می‌شود.\n"
-            "رمز پشتیبان را نگه دارید؛ بازیابی بدون آن ممکن نیست."
+            "رمز پشتیبان را نگه دارید؛ بازیابی بدون آن ممکن نیست.")
         )
         notice = wrapped_label(text)
         box.add_widget(notice)
-        pop = self.dialog("پشتیبان حساب", box)
-        box.add_widget(button("ذخیره پشتیبان", lambda: self.backup_dialog(on_saved=pop.dismiss)))
+        pop = self.dialog(tr("پشتیبان حساب"), box)
+        box.add_widget(button(tr("ذخیره پشتیبان"), lambda: self.backup_dialog(on_saved=pop.dismiss)))
         if platform == "android":
             # Android deletes private app data on uninstall. Setup must not
             # silently continue after cancelling the external backup picker.
             pop.auto_dismiss = False
-            box.add_widget(button("قفل حساب", self.lock_account))
+            box.add_widget(button(tr("قفل حساب"), self.lock_account))
         else:
-            box.add_widget(button("بعداً", pop.dismiss))
+            box.add_widget(button(tr("بعداً"), pop.dismiss))
 
     def shell(self):
         self.rootbox.clear_widgets()
@@ -344,17 +415,17 @@ class MehrApp(App):
         toolbar = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
         toolbar.add_widget(
             button(
-                "منو",
+                tr("منو"),
                 self.main_menu,
                 size_hint_x=None,
                 width=dp(62),
                 background_color=PANEL,
             )
         )
-        toolbar.add_widget(label("گفتگوها"))
+        toolbar.add_widget(label(tr("گفتگوها")))
         toolbar.add_widget(button("+", self.new_menu, size_hint_x=None, width=dp(44)))
         self.sidebar.add_widget(toolbar)
-        self.search = field("جستجو")
+        self.search = field(tr("جستجو"))
         self.search.bind(text=lambda *_: self.refresh())
         self.sidebar.add_widget(self.search)
         scroll = ScrollView()
@@ -372,7 +443,7 @@ class MehrApp(App):
         if self.mobile:
             header.add_widget(
                 button(
-                    "بازگشت",
+                    tr("بازگشت"),
                     self.show_chat_list,
                     size_hint_x=None,
                     width=dp(65),
@@ -380,14 +451,14 @@ class MehrApp(App):
                 )
             )
         titles = BoxLayout(orientation="vertical")
-        self.heading = label("مهر", halign="right")
-        self.statuslabel = label("آفلاین", font_size=dp(11))
+        self.heading = label(tr("مهر"), halign=alignment())
+        self.statuslabel = label(tr("آفلاین"), font_size=dp(11))
         titles.add_widget(self.heading)
         titles.add_widget(self.statuslabel)
         header.add_widget(titles)
         header.add_widget(
             button(
-                "اطلاعات",
+                tr("اطلاعات"),
                 self.chat_info,
                 size_hint_x=None,
                 width=dp(75),
@@ -422,7 +493,7 @@ class MehrApp(App):
                 "+", self.attach, size_hint_x=None, width=dp(42), background_color=PANEL
             )
         )
-        self.compose = field("پیام", multiline=True)
+        self.compose = field(tr("پیام"), multiline=True)
         self.compose.height = dp(48)
         self.compose.bind(
             text=lambda w, t: setattr(
@@ -430,9 +501,12 @@ class MehrApp(App):
             )
         )
         composer.add_widget(self.compose)
-        composer.add_widget(button("ارسال", self.send, size_hint_x=None, width=dp(70)))
+        composer.add_widget(button(tr("ارسال"), self.send, size_hint_x=None, width=dp(70)))
         self.mainpane.add_widget(composer)
         body.add_widget(self.mainpane)
+        if language() == "fa":
+            body.remove_widget(self.sidebar)
+            body.add_widget(self.sidebar)
         self.rootbox.add_widget(body)
         if self.mobile:
             self.show_chat_list()
@@ -500,14 +574,14 @@ class MehrApp(App):
                 (
                     last.get("text", "")
                     if last["kind"] != "file"
-                    else "فایل: " + last.get("filename", "")
+                    else tr("فایل: ") + last.get("filename", "")
                 )
                 if last
                 else ""
             )
             if not last and cid in self.engine.d["groups"]:
                 preview = (
-                    str(len(self.engine.d["groups"][cid]["body"]["members"])) + " عضو"
+                    str(len(self.engine.d["groups"][cid]["body"]["members"])) + tr(" عضو")
                 )
             row = ChatRow(
                 size_hint_y=None,
@@ -519,10 +593,10 @@ class MehrApp(App):
             row.bind(on_release=lambda _, c=cid: self.select(c))
             row.add_widget(Avatar(name, cid, pos_hint={"center_y": 0.5}))
             column = BoxLayout(orientation="vertical", spacing=dp(3))
-            title = label(name, halign="right", shorten=True, shorten_from="right")
+            title = label(name, halign=alignment(), shorten=True, shorten_from="right")
             subtitle = label(
                 preview.replace("\n", " "),
-                halign="right",
+                halign=alignment(),
                 font_size=dp(12),
                 shorten=True,
                 shorten_from="right",
@@ -572,12 +646,12 @@ class MehrApp(App):
                     drafts.pop(self.chat, None)
 
     def refresh(self):
-        if not self.engine or not hasattr(self, "messagebox"):
+        if self._locking or not self.engine or not hasattr(self, "messagebox"):
             return
         with self.engine.lock:
-            self.statuslabel.text = fa(self.engine.status)
+            self.statuslabel.text = fa(tr(self.engine.status))
             self.refresh_sidebar()
-            self.heading.text = fa(dict(self.chats()).get(self.chat, "مهر"))
+            self.heading.text = fa(dict(self.chats()).get(self.chat, tr("مهر")))
             messages = [
                 m
                 for m in self.engine.d["messages"].get(self.chat, [])
@@ -602,7 +676,7 @@ class MehrApp(App):
                     self._view_signature = None
                     self.refresh()
 
-                self.messagebox.add_widget(button("پیام‌های قبلی", more))
+                self.messagebox.add_widget(button(tr("پیام‌های قبلی"), more))
             available = max(
                 dp(240), Window.width - (0 if self.mobile else dp(320)) - dp(60)
             )
@@ -611,7 +685,7 @@ class MehrApp(App):
                 text = (
                     m.get("text", "")
                     if m["kind"] != "file"
-                    else "فایل: " + m.get("filename", "")
+                    else tr("فایل: ") + m.get("filename", "")
                 )
                 max_chars = max(18, min(70, int(available * 0.75 / dp(9))))
                 wrapped = "\n".join(
@@ -656,13 +730,13 @@ class MehrApp(App):
                         )
                     )
                     line.height += dp(17)
-                display = label(wrapped, halign="right", valign="middle")
+                display = label(wrapped, halign="right" if re.search(r"[\u0600-\u06ff]", text) else "left", valign="middle")
                 display.bind(size=lambda w, v: setattr(w, "text_size", v))
                 bubble.add_widget(display)
                 footer = BoxLayout(size_hint_y=None, height=dp(23))
                 stamp = time.strftime("%H:%M", time.localtime(m["created"]))
                 footer.add_widget(
-                    label(stamp + "  " + (m["state"] if own else ""), font_size=dp(10))
+                    label(stamp + "  " + (tr(m["state"]) if own else ""), font_size=dp(10))
                 )
                 menu = button(
                     "...",
@@ -680,7 +754,7 @@ class MehrApp(App):
                 self.messagebox.add_widget(line)
             if not self.chat:
                 self.messagebox.add_widget(
-                    label("یک گفتگو انتخاب کنید", size_hint_y=None, height=dp(150))
+                    label(tr("یک گفتگو انتخاب کنید"), size_hint_y=None, height=dp(150))
                 )
             if at_bottom:
                 Clock.schedule_once(
@@ -702,56 +776,58 @@ class MehrApp(App):
 
     def main_menu(self):
         box = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
-        pop = self.dialog("منو", box)
+        pop = self.dialog(tr("منو"), box)
         for title, fn in [
-            ("حساب کاربری", self.profile_dialog),
-            ("سرورها", self.settings),
-            ("کارت هویت من", self.my_card),
-            ("تغییر رمز", self.password_dialog),
-            ("ذخیره پشتیبان", self.backup_dialog),
-            ("قفل", self.lock_account),
+            (tr("حساب کاربری"), self.profile_dialog),
+            (tr("سرورها"), self.settings),
+            (tr("کارت هویت من"), self.my_card),
+            (tr("تغییر رمز"), self.password_dialog),
+            (tr("ذخیره پشتیبان"), self.backup_dialog),
+            (tr("قفل"), self.lock_account),
+            (tr("امنیت و حریم خصوصی"), self.privacy_dialog),
+            ("English" if language() == "fa" else "فارسی", self.change_language),
         ]:
             box.add_widget(button(title, lambda f=fn: (pop.dismiss(), f())))
-        box.add_widget(button("بستن", pop.dismiss))
+        box.add_widget(button(tr("بستن"), pop.dismiss))
 
     def new_menu(self):
         box = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(10))
-        pop = self.dialog("گفتگوی جدید", box)
+        pop = self.dialog(tr("گفتگوی جدید"), box)
         box.add_widget(
-            button("مخاطب جدید", lambda: (pop.dismiss(), self.contact_dialog()))
+            button(tr("مخاطب جدید"), lambda: (pop.dismiss(), self.contact_dialog()))
         )
         box.add_widget(
-            button("گروه جدید", lambda: (pop.dismiss(), self.group_dialog()))
+            button(tr("گروه جدید"), lambda: (pop.dismiss(), self.group_dialog()))
         )
-        box.add_widget(button("بستن", pop.dismiss))
+        box.add_widget(button(tr("بستن"), pop.dismiss))
 
     def profile_dialog(self):
         box = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(12))
-        username, name = field("نام کاربری"), field("نام نمایشی")
+        username, name = field(tr("نام کاربری")), field(tr("نام نمایشی"))
         username.text = self.engine.identity["username"]
         name.text = self.engine.identity["name"]
         box.add_widget(username)
         box.add_widget(name)
-        pop = self.dialog("حساب کاربری", box)
+        pop = self.dialog(tr("حساب کاربری"), box)
 
         def save():
             self.engine.update_profile(username.text, name.text)
             pop.dismiss()
             self.refresh()
 
-        box.add_widget(button("ذخیره", lambda: self.guarded(save)))
-        box.add_widget(button("بستن", pop.dismiss))
+        box.add_widget(button(tr("ذخیره"), lambda: self.guarded(save)))
+        box.add_widget(button(tr("بستن"), pop.dismiss))
 
     def password_dialog(self):
         box = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(12))
         old, new, again = (
-            field("رمز فعلی", password=True),
-            field("رمز جدید", password=True),
-            field("تکرار رمز جدید", password=True),
+            field(tr("رمز فعلی"), password=True),
+            field(tr("رمز جدید"), password=True),
+            field(tr("تکرار رمز جدید"), password=True),
         )
         for w in (old, new, again):
             box.add_widget(w)
-        pop = self.dialog("تغییر رمز", box)
+        pop = self.dialog(tr("تغییر رمز"), box)
 
         def change():
             from .crypto import derive
@@ -760,17 +836,17 @@ class MehrApp(App):
             if not hmac.compare_digest(
                 derive(old.text, self.engine.vault.salt), self.engine.vault.key
             ):
-                raise ValueError("رمز فعلی درست نیست")
+                raise ValueError(tr("رمز فعلی درست نیست"))
             if new.text != again.text:
-                raise ValueError("تکرار رمز مطابقت ندارد")
+                raise ValueError(tr("تکرار رمز مطابقت ندارد"))
             with self.engine.lock:
                 self.engine.vault.change_password(new.text)
             old.text = new.text = again.text = ""
             pop.dismiss()
-            self.error("رمز تغییر کرد؛ یک پشتیبان تازه ذخیره کنید")
+            self.error(tr("رمز تغییر کرد؛ یک پشتیبان تازه ذخیره کنید"))
 
-        box.add_widget(button("ذخیره", lambda: self.guarded(change)))
-        box.add_widget(button("بستن", pop.dismiss))
+        box.add_widget(button(tr("ذخیره"), lambda: self.guarded(change)))
+        box.add_widget(button(tr("بستن"), pop.dismiss))
 
     def chat_info(self):
         if not self.chat:
@@ -783,19 +859,19 @@ class MehrApp(App):
         box.bind(minimum_height=box.setter("height"))
         view.add_widget(box)
         outer.add_widget(view)
-        pop = self.dialog("اطلاعات گفتگو", outer)
+        pop = self.dialog(tr("اطلاعات گفتگو"), outer)
         box.add_widget(
-            label("حذف خودکار پیام‌های جدید", size_hint_y=None, height=dp(40))
+            label(tr("حذف خودکار پیام‌های جدید"), size_hint_y=None, height=dp(40))
         )
         chat = self.chat
         current_ttl = self.engine.d.get("chat_ttl", {}).get(
             chat, self.engine.d.get("ttl", 86400)
         )
         for title, seconds in [
-            ("۱ ساعت", 3600),
-            ("۱ روز", 86400),
-            ("۷ روز", 604800),
-            ("۳۰ روز", 2592000),
+            (tr("۱ ساعت"), 3600),
+            (tr("۱ روز"), 86400),
+            (tr("۷ روز"), 604800),
+            (tr("۳۰ روز"), 2592000),
         ]:
 
             def ttl(value=seconds):
@@ -817,7 +893,7 @@ class MehrApp(App):
             if group["owner"] == self.engine.me:
                 box.add_widget(
                     button(
-                        "ویرایش گروه", lambda: (pop.dismiss(), self.group_dialog(chat))
+                        tr("ویرایش گروه"), lambda: (pop.dismiss(), self.group_dialog(chat))
                     )
                 )
         else:
@@ -828,13 +904,13 @@ class MehrApp(App):
             if peer:
                 box.add_widget(
                     button(
-                        "تازه‌سازی نشست",
+                        tr("تازه‌سازی نشست"),
                         lambda: self.guarded(
                             lambda: (self.engine.reset_session(peer), pop.dismiss())
                         ),
                     )
                 )
-        box.add_widget(button("بستن", pop.dismiss))
+        box.add_widget(button(tr("بستن"), pop.dismiss))
 
     def settings(self):
         box = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
@@ -858,9 +934,9 @@ class MehrApp(App):
             )
             top = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(5))
             host, port, pin = (
-                field("IP یا دامنه"),
-                field("پورت"),
-                field("کلید عمومی سرور"),
+                field(tr("IP یا دامنه")),
+                field(tr("پورت")),
+                field(tr("کلید عمومی سرور")),
             )
             host.text = value["host"]
             port.text = str(value["port"])
@@ -877,13 +953,13 @@ class MehrApp(App):
                 fields.remove(entry)
                 rows.remove_widget(panel)
 
-            panel.add_widget(button("حذف", remove))
+            panel.add_widget(button(tr("حذف"), remove))
             rows.add_widget(panel)
 
         for value in self.engine.d["relays"] or [None]:
             add_server(value)
-        box.add_widget(button("افزودن سرور", add_server))
-        pop = self.dialog("سرورها", box)
+        box.add_widget(button(tr("افزودن سرور"), add_server))
+        pop = self.dialog(tr("سرورها"), box)
 
         def save():
             self.engine.configure_relays(
@@ -894,23 +970,64 @@ class MehrApp(App):
             )
             pop.dismiss()
 
-        box.add_widget(button("ذخیره", lambda: self.guarded(save)))
-        box.add_widget(button("بستن", pop.dismiss))
+        box.add_widget(button(tr("ذخیره"), lambda: self.guarded(save)))
+        box.add_widget(button(tr("بستن"), pop.dismiss))
+
+    def privacy_dialog(self):
+        engine = self.engine
+        box = BoxLayout(orientation="vertical", spacing=dp(8), padding=dp(12))
+        box.add_widget(wrapped_label(tr("پراکسی باید روی همین دستگاه اجرا شود. در صورت خرابی پراکسی، اتصال مستقیم انجام نمی‌شود.")))
+        row = BoxLayout(size_hint_y=None, height=dp(48))
+        row.add_widget(label(tr("پراکسی اجباری")))
+        enabled = CheckBox(size_hint_x=0.2, active=engine.d.get("proxy") is not None)
+        row.add_widget(enabled)
+        box.add_widget(row)
+        port = field(tr("پورت پراکسی محلی"))
+        port.text = str((engine.d.get("proxy") or {}).get("port", 9050))
+        box.add_widget(port)
+        box.add_widget(wrapped_label(tr("پراکسی یا Tor به‌تنهایی ناشناس‌بودن کامل را تضمین نمی‌کند. رله هنوز شناسه‌ها، زمان و اندازه پیام را می‌بیند.")))
+        box.add_widget(label(tr("قفل خودکار"), size_hint_y=None, height=dp(30)))
+        selected = [engine.d.get("auto_lock", 60)]
+        choices = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(5))
+        buttons = {}
+
+        def select(value):
+            selected[0] = value
+            for seconds, widget in buttons.items():
+                widget.background_color = BLUE if seconds == value else PANEL
+
+        for seconds, title in ((30, "۳۰ ثانیه"), (60, "۱ دقیقه"), (300, "۵ دقیقه")):
+            widget = button(tr(title), lambda value=seconds: select(value))
+            buttons[seconds] = widget
+            choices.add_widget(widget)
+        select(selected[0])
+        box.add_widget(choices)
+        pop = self.dialog(tr("امنیت و حریم خصوصی"), box)
+
+        def save():
+            if self.engine is not engine:
+                raise ValueError(tr("حساب قفل شده است"))
+            proxy = {"host": "127.0.0.1", "port": int(port.text)} if enabled.active else None
+            engine.configure_privacy(proxy, selected[0])
+            pop.dismiss()
+
+        box.add_widget(button(tr("ذخیره"), lambda: self.guarded(save)))
+        box.add_widget(button(tr("بستن"), pop.dismiss))
 
     def my_card(self):
         card = self.engine.card
         box = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
-        fingerprint = field("اثر انگشت", multiline=True)
+        fingerprint = field(tr("اثر انگشت"), multiline=True)
         fingerprint.text = card["body"]["id"]
-        data = field("کارت هویت", multiline=True)
+        data = field(tr("کارت هویت"), multiline=True)
         data.text = json.dumps(card, ensure_ascii=False)
-        box.add_widget(label("اثر انگشت را از مسیر مطمئن به مخاطب بدهید"))
+        box.add_widget(label(tr("اثر انگشت را از مسیر مطمئن به مخاطب بدهید")))
         box.add_widget(fingerprint)
         box.add_widget(data)
-        pop = self.dialog("کارت هویت", box)
+        pop = self.dialog(tr("کارت هویت"), box)
         box.add_widget(
             button(
-                "ذخیره کارت",
+                tr("ذخیره کارت"),
                 lambda: self.choose_document(
                     "save",
                     "identity.json",
@@ -918,13 +1035,13 @@ class MehrApp(App):
                 ),
             )
         )
-        box.add_widget(button("بستن", pop.dismiss))
+        box.add_widget(button(tr("بستن"), pop.dismiss))
 
     def contact_dialog(self):
         box = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
-        card = field("کارت هویت مخاطب", multiline=True)
-        fp = field("اثر انگشت تأییدشده", multiline=True)
-        username = field("نام کاربری")
+        card = field(tr("کارت هویت مخاطب"), multiline=True)
+        fp = field(tr("اثر انگشت تأییدشده"), multiline=True)
+        username = field(tr("نام کاربری"))
         box.add_widget(username)
 
         def lookup():
@@ -940,16 +1057,16 @@ class MehrApp(App):
                     if result.get("card"):
                         card.text = json.dumps(result["card"], ensure_ascii=False)
                     else:
-                        self.error("کاربر آنلاین پیدا نشد؛ کارت هویت را وارد کنید")
+                        self.error(tr("کاربر آنلاین پیدا نشد؛ کارت هویت را وارد کنید"))
                     return False
                 return time.monotonic() < deadline
 
             Clock.schedule_interval(check, 0.2)
 
-        box.add_widget(button("جستجو", lookup))
+        box.add_widget(button(tr("جستجو"), lookup))
         box.add_widget(card)
         box.add_widget(fp)
-        pop = self.dialog("مخاطب جدید", box)
+        pop = self.dialog(tr("مخاطب جدید"), box)
 
         def load(f):
             raw = f.read(64 * 1024).decode()
@@ -957,7 +1074,7 @@ class MehrApp(App):
 
         box.add_widget(
             button(
-                "بازکردن کارت",
+                tr("بازکردن کارت"),
                 lambda: self.choose_document("open", "identity.json", load),
             )
         )
@@ -967,12 +1084,12 @@ class MehrApp(App):
             pop.dismiss()
             self.select(self.engine.dm_id(pid))
 
-        box.add_widget(button("افزودن", lambda: self.guarded(add)))
-        box.add_widget(button("بستن", pop.dismiss))
+        box.add_widget(button(tr("افزودن"), lambda: self.guarded(add)))
+        box.add_widget(button(tr("بستن"), pop.dismiss))
 
     def group_dialog(self, edit_chat=None):
         box = BoxLayout(orientation="vertical", spacing=dp(8), padding=dp(10))
-        name = field("نام گروه")
+        name = field(tr("نام گروه"))
         current = self.engine.d["groups"][edit_chat]["body"] if edit_chat else None
         if current:
             name.text = current["name"]
@@ -992,7 +1109,7 @@ class MehrApp(App):
             rows.add_widget(row)
         view.add_widget(rows)
         box.add_widget(view)
-        pop = self.dialog("ویرایش گروه" if edit_chat else "گروه جدید", box)
+        pop = self.dialog(tr("ویرایش گروه") if edit_chat else tr("گروه جدید"), box)
 
         def create():
             members = [p for p, c in chosen.items() if c.active]
@@ -1004,14 +1121,14 @@ class MehrApp(App):
             pop.dismiss()
             self.select(cid)
 
-        box.add_widget(button("ساخت گروه", lambda: self.guarded(create)))
-        box.add_widget(button("بستن", pop.dismiss))
+        box.add_widget(button(tr("ساخت گروه"), lambda: self.guarded(create)))
+        box.add_widget(button(tr("بستن"), pop.dismiss))
 
     def message_menu(self, mid):
         chat = self.chat
         message = next(m for m in self.engine.d["messages"][chat] if m["id"] == mid)
         box = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
-        pop = self.dialog("پیام", box)
+        pop = self.dialog(tr("پیام"), box)
 
         def delete():
             self.engine.delete(chat, mid)
@@ -1019,20 +1136,20 @@ class MehrApp(App):
             self.refresh()
 
         if chat not in self.engine.d["groups"] or message["author"] == self.engine.me:
-            box.add_widget(button("حذف برای همه", lambda: self.guarded(delete)))
+            box.add_widget(button(tr("حذف برای همه"), lambda: self.guarded(delete)))
         if message["kind"] == "file":
             engine = self.engine
 
             def save_file(stream):
                 if self.engine is not engine:
-                    raise ValueError("حساب قفل شده است")
+                    raise ValueError(tr("حساب قفل شده است"))
                 # Recheck at the time the picker returns, not when the menu opened.
                 with engine.lock:
                     stream.write(engine.read_file(chat, mid))
 
             box.add_widget(
                 button(
-                    "ذخیره فایل",
+                    tr("ذخیره فایل"),
                     lambda: self.choose_document(
                         "save",
                         Path(message["filename"]).name,
@@ -1040,21 +1157,24 @@ class MehrApp(App):
                     ),
                 )
             )
-        box.add_widget(button("بستن", pop.dismiss))
+        box.add_widget(button(tr("بستن"), pop.dismiss))
 
     def attach(self):
         if not self.chat:
             return
         if not self.engine.files_enabled:
-            self.error("ارسال فایل غیرفعال است")
+            self.error(tr("ارسال فایل غیرفعال است"))
             return
         chat = self.chat
+        engine = self.engine
 
         def load(f):
+            if self.engine is not engine:
+                raise ValueError(tr("حساب قفل شده است"))
             raw = f.read(4 * 1024 * 1024 + 1)
             if len(raw) > 4 * 1024 * 1024:
-                raise ValueError("حداکثر حجم فایل ۴ مگابایت است")
-            self.engine.send(
+                raise ValueError(tr("حداکثر حجم فایل ۴ مگابایت است"))
+            engine.send(
                 chat,
                 file_bytes=raw,
                 filename=getattr(f, "display_name", None) or "file.bin",
@@ -1067,7 +1187,7 @@ class MehrApp(App):
 
         def save(f):
             if self.engine is not engine:
-                raise ValueError("حساب قفل شده است")
+                raise ValueError(tr("حساب قفل شده است"))
             with engine.lock:
                 f.write(engine.vault.backup_bytes())
                 f.flush()
@@ -1079,18 +1199,21 @@ class MehrApp(App):
         self.choose_document("save", "mehr-backup.mcv", save)
 
     def restore_dialog(self):
+        if not self.screen_protected:
+            self.error(tr("حفاظت صفحه فعال نشد؛ حساب باز نمی‌شود"))
+            return
         if self.vault_path.exists():
-            self.error("حساب موجود است؛ بازیابی روی حساب موجود انجام نمی‌شود")
+            self.error(tr("حساب موجود است؛ بازیابی روی حساب موجود انجام نمی‌شود"))
             return
 
         def load(f):
             raw = f.read(MAX_BACKUP_BYTES + 1)
             if len(raw) > MAX_BACKUP_BYTES:
-                raise ValueError("حداکثر حجم پشتیبان ۱ گیگابایت است")
+                raise ValueError(tr("حداکثر حجم پشتیبان ۱ گیگابایت است"))
             box = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
-            pw = field("رمز پشتیبان", password=True)
+            pw = field(tr("رمز پشتیبان"), password=True)
             box.add_widget(pw)
-            pop = self.dialog("بازیابی پشتیبان", box)
+            pop = self.dialog(tr("بازیابی پشتیبان"), box)
 
             def restore():
                 vault = Vault.restore_bytes(raw, self.vault_path, pw.text)
@@ -1098,7 +1221,7 @@ class MehrApp(App):
                 pop.dismiss()
                 self.enter(vault)
 
-            box.add_widget(button("بازیابی", lambda: self.guarded(restore)))
+            box.add_widget(button(tr("بازیابی"), lambda: self.guarded(restore)))
 
         self.choose_document("open", "mehr-backup.mcv", load)
 
@@ -1178,10 +1301,10 @@ class MehrApp(App):
                 raise
             return
         box = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(10))
-        path = field("مسیر کامل فایل")
+        path = field(tr("مسیر کامل فایل"))
         path.text = str(Path.home() / name) if mode == "save" else ""
         box.add_widget(path)
-        pop = self.dialog("ذخیره فایل" if mode == "save" else "بازکردن فایل", box)
+        pop = self.dialog(tr("ذخیره فایل") if mode == "save" else tr("بازکردن فایل"), box)
 
         def execute():
             chosen = Path(path.text).expanduser()
@@ -1198,8 +1321,8 @@ class MehrApp(App):
                 raise
             pop.dismiss()
 
-        box.add_widget(button("تأیید", lambda: self.guarded(execute)))
-        box.add_widget(button("بستن", pop.dismiss))
+        box.add_widget(button(tr("تأیید"), lambda: self.guarded(execute)))
+        box.add_widget(button(tr("بستن"), pop.dismiss))
 
     def activity(self):
         self.last_activity = time.monotonic()
@@ -1208,25 +1331,35 @@ class MehrApp(App):
         if not self.engine:
             return
         engine = self.engine
-        self.remember_draft()
+        if not self._locking:
+            self.remember_draft()
+            self._locking = True
+            # Hide and scrub sensitive widgets before waiting for network shutdown.
+            self.scrub_widgets(self.rootbox)
+            for popup in list(self.open_popups):
+                popup.dismiss()
+            self._view_signature = self._sidebar_signature = None
+            self.rootbox.clear_widgets()
+            self.rootbox.add_widget(label(tr("در حال بستن اتصال")))
         engine.stop()
         if hasattr(engine, "thread"):
             engine.thread.join(timeout=5)
         if hasattr(engine, "thread") and engine.thread.is_alive():
-            self.error("در حال بستن اتصال")
+            Clock.schedule_once(lambda *_: self.lock_account(), 0.2)
             return
         for popup in list(self.open_popups):
             popup.dismiss()
         with engine.lock:
             engine.vault.close()
         self.engine = None
+        self._locking = False
         self.chat = None
         self.compose.text = ""
         self.unlock_screen()
 
     def tick(self):
         if self.engine:
-            if time.monotonic() - self.last_activity > 300:
+            if time.monotonic() - self.last_activity > self.engine.d.get("auto_lock", 60):
                 self.lock_account()
             else:
                 self.engine.prune()

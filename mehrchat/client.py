@@ -21,7 +21,7 @@ from .crypto import (
     enc,
     dec,
 )
-from .wire import connect
+from .wire import connect, validate_proxy, validate_destination
 
 
 def safe_filename(name):
@@ -539,10 +539,31 @@ class Engine:
             self.secure.reset(peer)
         self.notify()
 
+    def configure_privacy(self, proxy, auto_lock=60):
+        proxy = validate_proxy(proxy)
+        if auto_lock not in (30, 60, 300):
+            raise ValueError("زمان نامعتبر است")
+        # Stop every old channel before changing policy. No direct channel may
+        # remain alive after required-proxy mode has been enabled.
+        was = self.running
+        self.stop()
+        if hasattr(self, "thread"):
+            self.thread.join(timeout=15)
+            if self.thread.is_alive():
+                raise ValueError("در حال بستن اتصال")
+        try:
+            with self.transaction():
+                self.d["proxy"] = proxy
+                self.d["auto_lock"] = auto_lock
+        finally:
+            if was:
+                self.start()
+
     def configure_relays(self, relays):
         if len(relays) > 5:
             raise ValueError("حداکثر ۵ سرور")
         for r in relays:
+            validate_destination(r["host"], r["port"])
             if (
                 not isinstance(r["host"], str)
                 or not 1 <= int(r["port"]) <= 65535
@@ -555,10 +576,12 @@ class Engine:
             self.thread.join(timeout=15)
         if hasattr(self, "thread") and self.thread.is_alive():
             raise ValueError("در حال بستن اتصال")
-        with self.transaction():
-            self.d["relays"] = relays
-        if was:
-            self.start()
+        try:
+            with self.transaction():
+                self.d["relays"] = copy.deepcopy(relays)
+        finally:
+            if was:
+                self.start()
 
     def update_profile(self, username, name):
         from .crypto import create_identity
@@ -626,6 +649,7 @@ class Engine:
                     relay["pin"],
                     self.identity,
                     self.card,
+                    proxy=self.d.get("proxy"),
                 )
                 self.connected[route] = False
                 self.connection_errors.pop(route, None)
@@ -753,6 +777,8 @@ class Engine:
             except Exception as exc:
                 if isinstance(exc, ValueError) and str(exc) == "این نام کاربری قبلاً ثبت شده است":
                     self.connection_errors[route] = "نام کاربری در سرور تکراری است"
+                elif self.d.get("proxy") is not None:
+                    self.connection_errors[route] = "اتصال پراکسی برقرار نشد"
             finally:
                 self.connected.pop(route, None)
                 self.files_enabled = bool(self.connected) and all(

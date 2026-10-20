@@ -31,6 +31,7 @@ jobs:
           mkdir -p reports
           KIVY_GL_BACKEND=angle_sdl2 python scripts/build.py client > reports/build-client.txt 2>&1
           python scripts/native_gui_smoke.py > reports/compiled-gui-test.txt 2>&1
+          python scripts/native_gui_smoke.py --language en > reports/compiled-gui-en-test.txt 2>&1
       - name: Collect native Kivy logs
         if: always()
         shell: pwsh

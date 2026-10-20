@@ -126,6 +126,7 @@ xml = subprocess.check_output(
 assert "allowBackup" in xml and any(
     "allowBackup" in l and "=false" in l for l in xml.splitlines()
 )
+assert "android.permission.HIDE_OVERLAY_WINDOWS" in xml, "Overlay protection permission is missing"
 assert not args.release or not any(
     "debuggable" in l and "=true" in l for l in xml.splitlines()
 )

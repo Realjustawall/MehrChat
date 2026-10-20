@@ -22,7 +22,10 @@ class Vault:
             self.acquire_lock()
         try:
             if self.path.exists():
-                raw = self.path.read_bytes()
+                with self.path.open("rb") as source:
+                    raw = source.read(MAX_BACKUP_BYTES + 1)
+                if len(raw) > MAX_BACKUP_BYTES:
+                    raise ValueError("فایل حساب بیش از حد بزرگ است")
                 if not raw.startswith(MAGIC):
                     raise ValueError("فایل حساب معتبر نیست")
                 self.salt = raw[len(MAGIC) : len(MAGIC) + argon2id.SALTBYTES]
@@ -77,6 +80,8 @@ class Vault:
 
     def save(self):
         raw = MAGIC + self.salt + bytes(SecretBox(self.key).encrypt(pack(self.data)))
+        if len(raw) > MAX_BACKUP_BYTES:
+            raise ValueError("فایل حساب بیش از حد بزرگ است")
         fd, temp = tempfile.mkstemp(
             prefix=".vault-", suffix=".tmp", dir=self.path.parent
         )

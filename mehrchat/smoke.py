@@ -12,6 +12,7 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.label import Label
 from .crypto import create_identity, public_card
 from . import ratchet
+from .i18n import tr, language
 from nacl.utils import random
 
 PASSWORD = "CI-only temporary test password"
@@ -57,7 +58,7 @@ def install(app, result_path):
             app.choose_document("save", "failed-export.mcv", fail_export)
             widgets = list(app.open_popups[-1].content.walk())
             next(w for w in widgets if isinstance(w, TextInput)).text = str(failed_output)
-            next(w for w in widgets if isinstance(w, Button) and w.text == fa("تأیید")).dispatch("on_release")
+            next(w for w in widgets if isinstance(w, Button) and w.text == fa(tr("تأیید"))).dispatch("on_release")
             assert not failed_output.exists(), "The GUI must remove its partial export"
             for popup in list(app.open_popups):
                 popup.dismiss()
@@ -90,11 +91,11 @@ def install(app, result_path):
         app.compose.text = private_draft
         app.group_dialog()
         widgets = list(app.open_popups[-1].content.walk())
-        next(w for w in widgets if isinstance(w, TextInput) and w.hint_text == "نام گروه").text = "گروه آزمون"
+        next(w for w in widgets if isinstance(w, TextInput) and w.hint_text == tr("نام گروه")).text = "گروه آزمون"
         members = [w for w in widgets if isinstance(w, CheckBox)]
         assert len(members) == 1
         members[0].active = True
-        next(w for w in widgets if isinstance(w, Button) and w.text == fa("ساخت گروه")).dispatch("on_release")
+        next(w for w in widgets if isinstance(w, Button) and w.text == fa(tr("ساخت گروه"))).dispatch("on_release")
         group = app.chat
         assert group in app.engine.d["groups"]
         assert app.compose.text == "", "A draft must never move to another recipient"
@@ -103,17 +104,24 @@ def install(app, result_path):
         assert app.compose.text == private_draft
         app.select(group)
         assert app.compose.text == group_draft
+        original_language = language()
+        app.change_language()
+        assert language() != original_language and app.compose.text == group_draft
+        assert any(isinstance(w, Button) and w.text == fa(tr("ارسال")) for w in app.rootbox.walk())
+        app.change_language()
+        assert language() == original_language and app.compose.text == group_draft
         # Import/confirmation must also go through the same recipient-switch path.
         app.contact_dialog()
         widgets = list(app.open_popups[-1].content.walk())
-        next(w for w in widgets if isinstance(w, TextInput) and w.hint_text == "کارت هویت مخاطب").text = json.dumps(peer)
-        next(w for w in widgets if isinstance(w, TextInput) and w.hint_text == "اثر انگشت تأییدشده").text = peer["body"]["id"]
-        next(w for w in widgets if isinstance(w, Button) and w.text == fa("افزودن")).dispatch("on_release")
+        next(w for w in widgets if isinstance(w, TextInput) and w.hint_text == tr("کارت هویت مخاطب")).text = json.dumps(peer)
+        next(w for w in widgets if isinstance(w, TextInput) and w.hint_text == tr("اثر انگشت تأییدشده")).text = peer["body"]["id"]
+        next(w for w in widgets if isinstance(w, Button) and w.text == fa(tr("افزودن"))).dispatch("on_release")
         assert app.chat == chat and app.compose.text == private_draft
         app.select(group)
         assert app.compose.text == group_draft
         steps = [
             app.settings,
+            app.privacy_dialog,
             app.profile_dialog,
             app.password_dialog,
             app.my_card,
@@ -132,8 +140,11 @@ def install(app, result_path):
             raw = app.vault_path.read_bytes()
             assert TEXT.encode() not in raw and PASSWORD.encode() not in raw
             identity = app.engine.me
+            old_messages, old_compose = app.messagebox, app.compose
             app.lock_account()
             assert app.engine is None
+            assert old_compose.text == "" and not old_compose._undo
+            assert all(not w.text for w in old_messages.walk() if isinstance(w, Label))
             app.password.text = PASSWORD
             app.unlock()
 
@@ -167,7 +178,7 @@ def install(app, result_path):
                 restore_popup = app.open_popups[-1]
                 widgets = list(restore_popup.content.walk())
                 next(w for w in widgets if isinstance(w, TextInput) and w.password).text = PASSWORD
-                next(w for w in widgets if isinstance(w, Button) and w.text == fa("بازیابی")).dispatch("on_release")
+                next(w for w in widgets if isinstance(w, Button) and w.text == fa(tr("بازیابی"))).dispatch("on_release")
                 app.choose_document = original_picker
                 assert app.engine is not None and app.engine.me == identity
                 assert app.engine.d["drafts"][chat] == private_draft
@@ -203,6 +214,9 @@ def install(app, result_path):
                         encrypted_backup_restore_dialog=True,
                         drafts_isolated_and_restored=True,
                         stable_chat_list_and_rendered_text=True,
+                        bilingual_switch_preserves_drafts=True,
+                        screen_protection_ready=app.screen_protected,
+                        lock_scrubs_text_and_undo=True,
                     )
                     if network:
                         result["tcp_noise_e2ee_request_reply"] = True
