@@ -1,12 +1,13 @@
 """Disposable CI peer for actual Android TCP / Noise / E2EE request and reply."""
 
-import argparse, asyncio, json, signal, sys, tempfile
+import argparse, asyncio, json, signal, ssl, sys, tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from mehrchat.client import Engine
 from mehrchat.server import Relay
 from mehrchat.vault import Vault
+from mehrchat.deployment import local_certificate
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--config", type=Path, required=True)
@@ -24,7 +25,11 @@ async def run():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         relay = Relay(root / "relay")
-        server = await asyncio.start_server(relay.handle, "127.0.0.1", 0)
+        ca = local_certificate(root / "tls", ["127.0.0.1", args.client_host])
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.load_cert_chain(root / "tls/server.pem", root / "tls/server-key.pem")
+        server = await asyncio.start_server(relay.handle, "127.0.0.1", 0, ssl=context)
         port = server.sockets[0].getsockname()[1]
         vault = Vault(
             root / "client/peer.mcv",
@@ -33,7 +38,7 @@ async def run():
             "مخاطب",
         )
         peer = Engine(vault)
-        peer.d["relays"] = [dict(host="127.0.0.1", port=port, pin=relay.pin)]
+        peer.d["relays"] = [dict(host="127.0.0.1", port=port, pin=relay.pin, transport="tls", ca=ca)]
         peer.running = True
         task = asyncio.create_task(peer.loop())
         args.config.parent.mkdir(parents=True, exist_ok=True)
@@ -41,7 +46,7 @@ async def run():
             json.dumps(
                 dict(
                     card=peer.card,
-                    relay=dict(host=args.client_host, port=port, pin=relay.pin),
+                    relay=dict(host=args.client_host, port=port, pin=relay.pin, transport="tls", ca=ca),
                     expected_reply=REPLY,
                 )
             )
@@ -64,7 +69,7 @@ async def run():
                         peer.send(chat, REPLY)
                         replied = True
                         print(
-                            "Android TCP / pinned Noise / authenticated bootstrap / Double Ratchet request and reply: PASS",
+                            "Android verified TLS / pinned Noise / authenticated bootstrap / Double Ratchet request and reply: PASS",
                             flush=True,
                         )
                 await asyncio.sleep(0.05)

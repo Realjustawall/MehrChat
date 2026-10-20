@@ -4,7 +4,8 @@ from pathlib import Path
 import ssl
 import tempfile
 import unittest
-from mehrchat.connection import probe, validate_profile
+from unittest import mock
+from mehrchat.connection import probe, validate_profile, tls_context
 from mehrchat.crypto import create_identity, public_card, enc
 from mehrchat.deployment import local_certificate, save_admin, verify_admin
 from mehrchat.server import Relay
@@ -12,6 +13,16 @@ from mehrchat.wire import connect
 
 
 class Credentials(unittest.TestCase):
+    def test_public_roots_and_verification_without_os_ca_discovery(self):
+        # Android's embedded Python must not depend on OS OpenSSL CA discovery.
+        empty = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        self.assertEqual(empty.cert_store_stats()["x509_ca"], 0)
+        with mock.patch("mehrchat.connection.ssl.create_default_context", return_value=empty):
+            context = tls_context()
+        self.assertGreater(context.cert_store_stats()["x509_ca"], 0)
+        self.assertTrue(context.check_hostname)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+
     def test_password_hash_and_username_are_both_required(self):
         with tempfile.TemporaryDirectory() as directory:
             save_admin(directory, 'operator', 'long test password 123')

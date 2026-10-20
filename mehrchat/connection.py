@@ -2,6 +2,7 @@
 import asyncio
 import json
 import ssl
+import certifi
 from .crypto import dec
 
 PROTOCOL = "Noise_NK_25519_ChaChaPoly_SHA256"
@@ -28,6 +29,7 @@ def validate_profile(value):
 def tls_context(ca=""):
     context = ssl.create_default_context()
     context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.load_verify_locations(cafile=certifi.where())
     if ca:
         context.load_verify_locations(cadata=ca)
     return context
