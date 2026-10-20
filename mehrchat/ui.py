@@ -948,9 +948,8 @@ class MehrApp(App):
 
         def add():
             pid = self.engine.add_contact(card.text, fp.text)
-            self.chat = self.engine.dm_id(pid)
             pop.dismiss()
-            self.refresh()
+            self.select(self.engine.dm_id(pid))
 
         box.add_widget(button("افزودن", lambda: self.guarded(add)))
         box.add_widget(button("بستن", pop.dismiss))
@@ -983,11 +982,11 @@ class MehrApp(App):
             members = [p for p, c in chosen.items() if c.active]
             if edit_chat:
                 self.engine.update_group(edit_chat, name.text, members)
-                self.chat = edit_chat
+                cid = edit_chat
             else:
-                self.chat = self.engine.create_group(name.text, members)
+                cid = self.engine.create_group(name.text, members)
             pop.dismiss()
-            self.refresh()
+            self.select(cid)
 
         box.add_widget(button("ساخت گروه", lambda: self.guarded(create)))
         box.add_widget(button("بستن", pop.dismiss))

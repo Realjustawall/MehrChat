@@ -5,6 +5,9 @@ Always uses a temporary vault; never reads the interactive user's account.
 import io, json, os, time
 from pathlib import Path
 from kivy.clock import Clock
+from kivy.uix.button import Button
+from kivy.uix.checkbox import CheckBox
+from kivy.uix.textinput import TextInput
 from .crypto import create_identity, public_card
 from . import ratchet
 from nacl.utils import random
@@ -31,7 +34,7 @@ def install(app, result_path):
         if app.engine is None:
             return True
         assert app.open_popups, "New accounts must be shown the external backup reminder"
-        from .ui import platform
+        from .ui import fa, platform
         if platform == "android":
             assert app.open_popups[-1].auto_dismiss is False
         setup_backup = io.BytesIO()
@@ -69,12 +72,28 @@ def install(app, result_path):
         private_draft = "پیش‌نویس خصوصی"
         group_draft = "پیش‌نویس گروه"
         app.compose.text = private_draft
-        group = app.engine.create_group("گروه آزمون", [peer["body"]["id"]])
-        app.select(group)
+        app.group_dialog()
+        widgets = list(app.open_popups[-1].content.walk())
+        next(w for w in widgets if isinstance(w, TextInput) and w.hint_text == "نام گروه").text = "گروه آزمون"
+        members = [w for w in widgets if isinstance(w, CheckBox)]
+        assert len(members) == 1
+        members[0].active = True
+        next(w for w in widgets if isinstance(w, Button) and w.text == fa("ساخت گروه")).dispatch("on_release")
+        group = app.chat
+        assert group in app.engine.d["groups"]
         assert app.compose.text == "", "A draft must never move to another recipient"
         app.compose.text = group_draft
         app.select(chat)
         assert app.compose.text == private_draft
+        app.select(group)
+        assert app.compose.text == group_draft
+        # Import/confirmation must also go through the same recipient-switch path.
+        app.contact_dialog()
+        widgets = list(app.open_popups[-1].content.walk())
+        next(w for w in widgets if isinstance(w, TextInput) and w.hint_text == "کارت هویت مخاطب").text = json.dumps(peer)
+        next(w for w in widgets if isinstance(w, TextInput) and w.hint_text == "اثر انگشت تأییدشده").text = peer["body"]["id"]
+        next(w for w in widgets if isinstance(w, Button) and w.text == fa("افزودن")).dispatch("on_release")
+        assert app.chat == chat and app.compose.text == private_draft
         app.select(group)
         assert app.compose.text == group_draft
         steps = [
