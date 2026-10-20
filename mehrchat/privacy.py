@@ -1,5 +1,6 @@
 """Endpoint privacy controls. These do not defeat a compromised operating system."""
 import os
+import logging
 
 
 def disable_core_dumps():
@@ -21,15 +22,21 @@ def protect_android_screen(callback):
 
     @run_on_ui_thread
     def apply():
+        stage = 'window'
         try:
             activity = autoclass('org.kivy.android.PythonActivity').mActivity
             window = activity.getWindow()
             flag = autoclass('android.view.WindowManager$LayoutParams').FLAG_SECURE
+            stage = 'secure-flag'
             window.addFlags(flag)
+            stage = 'overlay'
             if autoclass('android.os.Build$VERSION').SDK_INT >= 31:
                 window.setHideOverlayWindows(True)
+            stage = 'verification'
             callback(bool(window.getAttributes().flags & flag))
-        except Exception:
+        except Exception as exc:
+            # Deliberately omit exception text, which may contain platform data.
+            logging.warning('Screen protection setup failed: %s (%s)', stage, type(exc).__name__)
             callback(False)
     apply()
 

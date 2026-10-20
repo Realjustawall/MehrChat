@@ -39,6 +39,11 @@ for index in $(seq 1 60); do
   sleep 1
 done
 adb logcat -d > reports/android-logcat-flow.txt
+adb shell dumpsys window windows > reports/android-window-state.txt
+if ! adb shell run-as "$package" test -f "$result"; then
+  tail -n 120 reports/android-logcat-flow.txt
+  exit 1
+fi
 adb shell run-as "$package" cat "$result" > reports/android-gui-flow.json
 adb exec-out run-as "$package" cat "$private_dir/files/ci-layout.png" > reports/android-layout.png
 python - <<'PY'

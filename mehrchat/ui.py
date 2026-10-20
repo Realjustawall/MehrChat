@@ -209,6 +209,7 @@ class MehrApp(App):
         load_language(self.language_path)
         self.title = tr("مهر")
         self.screen_protected = platform != "android"
+        self.screen_protection_done = platform != "android"
         self.login_failures = 0
         self.login_retry_at = 0
         self.unlock_screen()
@@ -223,7 +224,9 @@ class MehrApp(App):
         return self.rootbox
 
     def screen_protection_result(self, ok):
+        self.screen_protection_done = True
         self.screen_protected = ok
+        self.loginbutton.disabled = not ok
         if not ok:
             self.error(tr("حفاظت صفحه فعال نشد؛ حساب باز نمی‌شود"))
 
@@ -319,6 +322,7 @@ class MehrApp(App):
         self.loginbutton = button(
             tr("ورود") if self.vault_path.exists() else tr("ساخت حساب"), self.unlock
         )
+        self.loginbutton.disabled = not self.screen_protected
         wrap.add_widget(self.loginbutton)
         wrap.add_widget(button(tr("بازیابی پشتیبان"), self.restore_dialog))
         wrap.add_widget(button("English" if language() == "fa" else "فارسی", self.change_language))

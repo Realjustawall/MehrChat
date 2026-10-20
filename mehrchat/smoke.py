@@ -25,6 +25,13 @@ def install(app, result_path):
     network = json.loads(Path(config_path).read_text()) if config_path else None
 
     def login(*_):
+        # Android's Java UI-thread acknowledgement is asynchronous. A slow
+        # first frame must not turn an early simulated click into a false timeout.
+        if not app.screen_protection_done:
+            assert time.monotonic() < deadline, "Screen protection acknowledgement timed out"
+            Clock.schedule_once(login, 0.1)
+            return
+        assert app.screen_protected, "Screen protection setup failed; inspect the safe setup diagnostic"
         app.username.text = "ci_tester"
         app.displayname.text = "آزمون"
         app.password.text = PASSWORD
