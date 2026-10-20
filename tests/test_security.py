@@ -234,6 +234,7 @@ class VaultTests(unittest.TestCase):
                 public_card(restored.data["identity"]),
                 public_card(vault.data["identity"]),
             )
+            restored.close()
             raw = bytearray(path.read_bytes())
             raw[-1] ^= 1
             path.write_bytes(raw)
