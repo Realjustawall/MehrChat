@@ -6,7 +6,8 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: mehrchat-${{ github.ref }}
+  # A slow earlier Android build must not hold the corrected source in a queue.
+  group: mehrchat-${{ github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: false
 jobs:
   native:
