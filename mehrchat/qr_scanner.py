@@ -53,7 +53,8 @@ def open_scanner(app, callback):
             try:
                 from kivy.uix.camera import Camera
                 camera=Camera(play=True,resolution=(640,480),size_hint_y=None,height=preview.height)
-                box.remove_widget(preview);box.add_widget(camera,index=1)
+                # Decode and preview the camera's NV21 buffer directly. Kivy's
+                # external-texture FBO path can show black on some Android GPUs.
                 resources['camera']=camera
                 def poll(*_):
                     if stopped.is_set() or resources['busy'] or not camera.texture:
@@ -67,6 +68,13 @@ def open_scanner(app, callback):
                             if provider._buffer is not None:
                                 luminance=bytes(value & 255 for value in provider._buffer)
                     raw=bytes(texture.pixels) if luminance is None else b''
+                    if luminance is not None:
+                        live=Texture.create(size=(width,height),colorfmt='luminance')
+                        live.blit_buffer(luminance[:width*height],colorfmt='luminance',bufferfmt='ubyte')
+                        live.flip_vertical()
+                        preview.texture=live
+                    else:
+                        preview.texture=texture
                     resources['busy']=True
                     def decode():
                         try:
@@ -83,7 +91,7 @@ def open_scanner(app, callback):
                         finally:
                             resources['busy']=False
                     threading.Thread(target=decode,daemon=True).start()
-                resources['poll']=Clock.schedule_interval(poll,.7)
+                resources['poll']=Clock.schedule_interval(poll,.35)
             except Exception:
                 unavailable()
         if check_permission(Permission.CAMERA):
