@@ -16,9 +16,19 @@ def run(raw):
 with tempfile.TemporaryDirectory() as directory,socket.socket() as listener:
     canary=Path(directory)/'vault-canary.txt';canary.write_text('private test data')
     listener.bind(('127.0.0.1',0));listener.listen()
+    # Prove the target is reachable outside isolation, then ensure the worker
+    # never reached it. AppContainer firewalls can silently drop rather than
+    # return WSAEACCES, so a timeout alone is not sufficient evidence.
+    with socket.create_connection(listener.getsockname(),timeout=2):
+        connection,_=listener.accept();connection.close()
     raw=b'MEHRCHAT_SANDBOX_PROBE\0'+json.dumps({'canary':str(canary),'port':listener.getsockname()[1]}).encode()
     result=json.loads(run(raw))
     assert result=={'files_denied':True,'network_denied':True},result
+    listener.settimeout(.2)
+    try:
+        connection,_=listener.accept();connection.close()
+    except TimeoutError:pass
+    else:raise AssertionError('Sandbox connected to the listening socket')
     image=io.BytesIO();Image.new('RGB',(500,300),'green').save(image,format='JPEG')
     preview=validate_preview(json.loads(run(image.getvalue())))
     assert preview['kind']=='image' and len(preview_pixels(preview))<=256*256*3

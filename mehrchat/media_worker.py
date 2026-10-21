@@ -112,7 +112,7 @@ def run():
         except (PermissionError,FileNotFoundError):denied_file=True
         try:
             sock=socket.socket();sock.settimeout(1);sock.connect(('127.0.0.1',request['port']));sock.close()
-        except PermissionError:denied_network=True
+        except (PermissionError,TimeoutError):denied_network=True
         sys.stdout.write(json.dumps(dict(files_denied=denied_file,network_denied=denied_network)))
         return 0
     from mehrchat.media import media_kind

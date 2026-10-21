@@ -5,6 +5,9 @@ on:
       - main.py
       - mehrchat/ui.py
       - mehrchat/smoke.py
+      - mehrchat/media_worker.py
+      - mehrchat/windows_preview.py
+      - scripts/verify_media_sandbox.py
       - scripts/build.py
       - scripts/native_gui_smoke.py
       - .github/workflows/native-diagnostics.yml
