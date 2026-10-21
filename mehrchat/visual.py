@@ -114,7 +114,7 @@ class ChatWallpaper(Widget):
             texture = CoreImage(str(ASSETS / 'telegram-chat-pattern.png')).texture
             texture.wrap = 'repeat'
             repeat_x = self.width / dp(540)
-            repeat_y = self.height / dp(540)
+            repeat_y = self.height / dp(1080)
             Color(1,1,1,.12)
             Rectangle(texture=texture,pos=self.pos,size=self.size,
                       tex_coords=(0,0,repeat_x,0,repeat_x,repeat_y,0,repeat_y))
