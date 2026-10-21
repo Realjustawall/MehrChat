@@ -1,8 +1,8 @@
 # MehrChat
 
-MehrChat is a self-hosted native messenger for Windows, Linux and Android. It provides private conversations, groups, encrypted attachments, delivery receipts, message expiry and encrypted identity backups. The interface is Persian and bundles the Vazirmatn font; these installation instructions are in English.
+MehrChat is a self-hosted native messenger for Windows, Linux and Android. It provides private conversations, groups, encrypted attachments, delivery receipts, message expiry and encrypted identity backups. The interface supports Persian and English, selectable before login, with light/dark themes and the bundled Vazirmatn font. These installation instructions are in English.
 
-**Version 0.6.0.** Download application packages from [Releases](https://github.com/Realjustawall/MehrChat/releases). Builds and test reports are available in [GitHub Actions](https://github.com/Realjustawall/MehrChat/actions). Read the [security model](SECURITY.md) before operating a server. No independent security audit is claimed.
+**Version 0.7.0.** Download application packages from [Releases](https://github.com/Realjustawall/MehrChat/releases). Builds and test reports are available in [GitHub Actions](https://github.com/Realjustawall/MehrChat/actions). Read the [security model](SECURITY.md) before operating a server. No independent security audit is claimed.
 
 ## Choose your installation
 
@@ -10,9 +10,9 @@ MehrChat is a self-hosted native messenger for Windows, Linux and Android. It pr
 | --- | --- | --- |
 | `MehrChat-Windows-x64.zip` | Windows desktop client and Windows relay | Extract the complete archive; use the instructions below. |
 | `MehrChat-Ubuntu-x64.tar.gz` | Linux desktop client and compiled relay | Extract the complete archive; use the desktop or legacy relay instructions below. |
-| `MehrChat-0.6.0-Android-arm64-v8a.apk` | Signed Android release for modern 64-bit ARM phones | Install the APK and configure your server. |
-| `MehrChat-0.6.0-Server-Source.tar.gz` | Interactive Ubuntu TLS installer and server source | Recommended server deployment. |
-| `MehrChat-0.6.0-UI-Screenshots.zip` | Actual Windows and Android emulator UI captures | Extract to view connection, login, conversations and settings. |
+| `MehrChat-0.7.0-Android-arm64-v8a.apk` | Signed Android release for modern 64-bit ARM phones | Install the APK and configure your server. |
+| `MehrChat-0.7.0-Server-Source.tar.gz` | Interactive Ubuntu TLS installer and server source | Recommended server deployment. |
+| `MehrChat-0.7.0-UI-Screenshots.zip` | Actual Windows and Android emulator UI captures | Extract to view connection, login, conversations and settings. |
 | `SHA256SUMS.txt` | Download checksums | Check your downloaded files before installation. |
 
 Windows executables are not Authenticode-signed. Android test/debug APKs and unsigned APKs in Actions are development artifacts; use the signed release APK for normal installation. The Android emulator test runs on x86_64; the phone release is arm64-v8a. Physical-device behavior still needs device-specific trials.
@@ -26,6 +26,30 @@ sha256sum --ignore-missing -c SHA256SUMS.txt
 ```
 
 All checked files must report `OK`. The release also publishes `Android-signature-verification.txt` with the APK certificate SHA-256 fingerprint; compare it with `apksigner verify --print-certs your.apk` if Android SDK build-tools are installed.
+
+## Language, appearance and writing
+
+Choose **فارسی / English** and **Light / Dark** on the connection or login screen. After login, open **Menu → Appearance and language** to change the language, theme, text size or Enter behavior. Preferences are public local UI settings; no password, keys or server profile is stored in that preferences file. Theme/language changes preserve the current draft and connection fields.
+
+The Vazirmatn font is used for labels, dialogs, inputs and password hints. Logical text is wrapped before Persian shaping and bidirectional layout. Messages and captions keep the original Unicode; emoji family/profession ZWJ sequences are not split by bidi processing. Shift+Enter makes a new line when Enter-to-send is enabled; otherwise Enter makes a new line. Message actions include reply, copy and deletion under existing group permissions.
+
+The offline picker includes **3,944 canonical Emoji 17.0 sequences** using Twemoji 17.0.3, including skin tones, flags and families. It supports categories, English name search, skin-tone filters, pagination and recently used items. No network connection is used to render emoji.
+
+## Encrypted attachments and safe previews
+
+Attachments remain capped at **4 MiB** and require the administrator to enable file transfer. Choose a file, inspect its preview, add a multiline caption, then send. Image thumbnails, video cover frames, audio waveform/metadata, captions and replies are inside the same authenticated E2EE payload as the attachment. A SHA-256 digest additionally checks the original bytes at receive/export. The relay sees ciphertext and bounded routing records; it does not extract archives, run antivirus, decode images/media or execute uploaded files.
+
+Automatic received previews contain only an explicitly validated, **uncompressed RGB** raster (maximum 256×256) or at most 64 numeric waveform values. The receiver does not feed the original attachment into an image/video/audio codec for automatic preview. Opening a preview displays the sanitized raster/waveform; this is not full-resolution original viewing or full media playback. Originals are saved only through an explicit file-picker action, never auto-opened.
+
+Preview generation for an explicitly selected local file runs separately from the account:
+
+- **Windows:** a dedicated executable runs in a no-network-capability AppContainer, with access only to its worker executable and private sandbox temporary directory. A kill-on-close job limits memory, CPU and child processes. Use the normal per-user installation; preview generation fails closed if its worker ACL/profile cannot be created. Source Python execution does not bypass this requirement.
+- **Android:** a non-exported `isolatedProcess` service has a distinct UID and no app permissions. Input crosses a bounded pipe; output is only bounded raw RGB or waveform metadata. The caller kills the isolated process after completion or timeout. Video frame extraction requires Android 8.1/API 27 or newer; Android 8.0 can still send/save the original attachment.
+- **Linux:** the image worker preloads codecs, drops new privileges and installs seccomp rules denying filesystem opens/mutations, network, process creation and process inspection. Video/audio codecs additionally require `bubblewrap` and private filesystem/network namespaces; install `bubblewrap` and `libseccomp2` from your distribution. If the host disables these facilities, the app sends the attachment without generating a preview. There is no unsandboxed fallback.
+
+Generation has byte/pixel/time limits; images larger than 12 megapixels are refused. Supported original formats are limited to ordinary JPEG/PNG/GIF/WebP, MP4-family video and common audio formats detected by content, not filename. A video preview is one cover frame. Waveforms cover the first 30 seconds at most; duration may be the preview duration on desktop. GIF previews are static. SVG/HTML/PDF, archives and executables are never previewed.
+
+Encryption and sandboxing do **not** certify that an original file is virus-free. A server cannot virus-scan encrypted content without breaking this privacy model. Decoder, OS and sandbox vulnerabilities remain possible; keep the OS and dependencies updated. Treat exported originals as untrusted when opening them in other applications. See SECURITY.md for the boundary and residual risks.
 
 ## Contact QR and short addresses (0.6.0)
 
@@ -46,7 +70,7 @@ Upgrade the relay for short-address search. Its existing `users` database is mig
 
 Desktop and Android use the same responsive native interface with a Telegram Web inspired light layout, pixel-measured Persian/English wrapping, compact scrollable dialogs, offline color emoji, and a camera/QR contact flow. The Windows interface remains native; it does not log into Telegram or load a remote website. Toolbar icons and the chat wallpaper are adapted from **Telegram Web A** (`Ajaxy/telegram-tt`, commit `f67a40879a7d78c2683ec5a296cf55bc22417d56`), with the converted font and provenance bundled in `assets/telegram-source.txt`. This version is distributed under **GPL-3.0**; see `LICENSE` and `assets/licenses/Telegram-Web-GPL-3.0.txt`.
 
-Emoji graphics are **Twemoji 16.0.1**, © Twitter and contributors, **CC-BY-4.0**; see `assets/licenses/Twemoji-graphics-LICENSE.txt`. The in-app About screen includes attribution. No Telegram logo, Telegram service integration or affiliation is implied.
+Emoji graphics are **Twemoji 17.0.3**, © Twitter and contributors, **CC-BY-4.0**; see `assets/licenses/Twemoji-graphics-LICENSE.txt`. The in-app About screen includes attribution. No Telegram logo, Telegram service integration or affiliation is implied.
 
 ## 1. Deploy a secure Ubuntu server
 
@@ -60,10 +84,10 @@ Emoji graphics are **Twemoji 16.0.1**, © Twitter and contributors, **CC-BY-4.0*
 
 ### Download and run
 
-Download `MehrChat-0.6.0-Server-Source.tar.gz` from the release and verify its checksum. Then:
+Download `MehrChat-0.7.0-Server-Source.tar.gz` from the release and verify its checksum. Then:
 
 ```sh
-tar -xzf MehrChat-0.6.0-Server-Source.tar.gz
+tar -xzf MehrChat-0.7.0-Server-Source.tar.gz
 cd MehrChat-0.6.0
 sudo bash deploy/install-ubuntu.sh
 ```
@@ -165,7 +189,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\uninstall-windows-c
 
 ## 3. Install the Android client
 
-Download `MehrChat-0.6.0-Android-arm64-v8a.apk` to a compatible Android phone (Android 8/API 26 or newer, 64-bit ARM). Open the APK and, if Android requests it, allow installation from the download source you chose. Verify the release checksum and signing certificate fingerprint against the published release information.
+Download `MehrChat-0.7.0-Android-arm64-v8a.apk` to a compatible Android phone (Android 8/API 26 or newer, 64-bit ARM). Open the APK and, if Android requests it, allow installation from the download source you chose. Verify the release checksum and signing certificate fingerprint against the published release information.
 
 For an existing installation, install the new APK over it. Android updates require the **same signing certificate** and a compatible version code. A debug APK uses another key and may not update to the official APK. Export an encrypted backup first; uninstalling Android deletes the local app identity and keys. If an installation reports a signature conflict, do not uninstall until the backup has been exported and its password retained.
 

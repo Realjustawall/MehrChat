@@ -53,6 +53,14 @@ jobs:
           else
             KIVY_GL_BACKEND=angle_sdl2 python scripts/connection_gui_smoke.py > reports/connection-gui-test.txt 2>&1
           fi
+      - name: Verify Persian English themes and safe media layout
+        shell: bash
+        run: |
+          if [ '${{ runner.os }}' = 'Linux' ]; then
+            xvfb-run -a python scripts/appearance_gui_smoke.py > reports/appearance-gui-test.txt 2>&1
+          else
+            KIVY_GL_BACKEND=angle_sdl2 python scripts/appearance_gui_smoke.py > reports/appearance-gui-test.txt 2>&1
+          fi
       - name: Build native relay
         shell: bash
         run: python scripts/build.py server > reports/build-relay.txt 2>&1
@@ -64,6 +72,9 @@ jobs:
           else
             KIVY_GL_BACKEND=angle_sdl2 python scripts/build.py client > reports/build-client.txt 2>&1
           fi
+      - name: Verify packaged media OS sandbox
+        shell: bash
+        run: python scripts/verify_media_sandbox.py > reports/media-sandbox-test.txt 2>&1
       - name: Test compiled relay with real clients
         shell: bash
         run: python tests/binary_smoke.py > reports/compiled-relay-test.txt 2>&1

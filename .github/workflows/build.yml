@@ -6,8 +6,9 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: mehrchat-${{ github.ref }}
-  cancel-in-progress: true
+  # A slow earlier Android build must not hold the corrected source in a queue.
+  group: mehrchat-${{ github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
 jobs:
   native:
     strategy:
@@ -48,6 +49,14 @@ jobs:
           else
             KIVY_GL_BACKEND=angle_sdl2 python scripts/layout_gui_smoke.py > reports/layout-gui-test.txt 2>&1
           fi
+      - name: Verify Persian English themes and safe media layout
+        shell: bash
+        run: |
+          if [ '${{ runner.os }}' = 'Linux' ]; then
+            xvfb-run -a python scripts/appearance_gui_smoke.py > reports/appearance-gui-test.txt 2>&1
+          else
+            KIVY_GL_BACKEND=angle_sdl2 python scripts/appearance_gui_smoke.py > reports/appearance-gui-test.txt 2>&1
+          fi
       - name: Build native relay
         shell: bash
         run: python scripts/build.py server > reports/build-relay.txt 2>&1
@@ -59,6 +68,9 @@ jobs:
           else
             KIVY_GL_BACKEND=angle_sdl2 python scripts/build.py client > reports/build-client.txt 2>&1
           fi
+      - name: Verify packaged media OS sandbox
+        shell: bash
+        run: python scripts/verify_media_sandbox.py > reports/media-sandbox-test.txt 2>&1
       - name: Test compiled relay with real clients
         shell: bash
         run: python tests/binary_smoke.py > reports/compiled-relay-test.txt 2>&1
@@ -215,7 +227,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - uses: actions/cache/save@v4
-        if: steps.android-cache.outputs.cache-hit != 'true'
+        if: always() && steps.android-cache.outputs.cache-hit != 'true'
         with:
           path: |
             ~/.buildozer
@@ -266,11 +278,11 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const tag = `v0.6.0-rc1-ci.${context.runNumber}`;
+            const tag = `v0.7.0-rc1-ci.${context.runNumber}`;
             const commit = context.payload.pull_request?.head.sha || context.sha;
             const release = await github.rest.repos.createRelease({
               ...context.repo, tag_name: tag, target_commitish: commit,
-              name: `MehrChat 0.6.0-rc1 — CI ${context.runNumber}`,
+              name: `MehrChat 0.7.0-rc1 — CI ${context.runNumber}`,
               draft: true, prerelease: true,
               body: `Native Windows/Linux and Android candidate.\n\nSource: ${commit}\nValidation: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\nRelease APKs are unsigned and require the owner's signing key. Debug APKs are for testing. This candidate has not received an independent security audit.`
             });

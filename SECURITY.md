@@ -1,8 +1,8 @@
-# Security scope — 0.2.1-rc1
+# Security scope — 0.7.0
 
 This integration has not received an independent cryptographic audit. Tests demonstrate selected behaviors, not a security proof or production certification. Trusted endpoints and independent fingerprint comparison are required.
 
-Identity: device-generated Ed25519 signing key and independent Curve25519 key. SHA-256 fingerprint binds both public keys. User private keys, passwords and ratchet secrets never go to the relay. Public cards are online memory only; username/fingerprint reservations persist.
+Identity: device-generated Ed25519 signing key and independent Curve25519 key. SHA-256 fingerprint binds both public keys. User private keys, passwords and ratchet secrets never go to the relay. Public signed identity cards and short-address/username reservations persist on relays for offline-recipient discovery. These cards contain public keys, not private keys.
 
 Bootstrap: application-specific signed interactive ephemeral X25519 exchange, transcript-bound HKDF-SHA256 and initial encrypted key confirmation. Deterministic initiator selection and authenticated generations coordinate reset/recovery. Bootstrap private material is discarded after establishment. First contact requires both devices to participate. This composition requires independent review.
 
@@ -31,3 +31,16 @@ Backup export and restore share a 1 GiB limit; export rejects larger snapshots r
 Release gates: independent review, physical Android/native target tests, domestic cross-operator trials, abuse/load testing and owner-controlled signing. APK inspection checks pinned versions, foreign-architecture libraries, 16 KiB ELF alignment and backup/debug settings. Emulator startup is separate from physical-device validation.
 
 References: https://signal.org/docs/specifications/doubleratchet/ ; https://python-doubleratchet.readthedocs.io/ ; https://noiseprotocol.org/noise.html ; https://pynacl.readthedocs.io/
+
+
+## Attachment and preview boundary (0.7)
+
+The relay is an opaque ciphertext store. No upload path accepts filesystem destinations or executes/extracts/decodes uploaded payloads. Existing authenticated framing, packet size caps, expiry, per-user/global queue quotas, 64-connection admission and rate controls remain. The Ubuntu service also denies privilege acquisition, devices, kernel/control-group changes and namespaces; empties capabilities; restricts address families; and limits memory (512 MiB), tasks (64), CPU (one core) and file size. These controls limit blast radius and denial of service; they do not prove the absence of server/parser/kernel vulnerabilities.
+
+New previews are authenticated encrypted message metadata. The receiving app accepts only a versioned, bounded raw-RGB raster (256×256 maximum; no compressed image decoder) or up to 64 integer audio amplitude values. Base64 size, exact byte count, dimensions, duration and type are checked before texture allocation. URLs, arbitrary preview properties and serialized code are rejected. An attachment SHA-256 mismatch is rejected before storage/export, in addition to existing AEAD authenticity.
+
+Original media decoding happens only for a locally selected attachment, in a separate sandbox with no vault object, signing material, ratchet state or account environment. Windows requires a distinct no-capability AppContainer with tightly scoped ACL grants plus a resource-limited kill-on-close job. Android uses a non-exported isolated-UID service, bounded pipes and a timeout/control path that terminates that process. Linux image decoding uses no-new-privileges and seccomp; external AV decoding uses bubblewrap filesystem/network namespaces. Unsupported or unavailable isolation means **no generated preview**, not an insecure retry. Video/audio child processes are bounded and killed with the worker group/job.
+
+A compromised sender can choose arbitrary thumbnail pixels or misleading file names/captions. Preview appearance is not evidence of the original file type or safety. No original is automatically opened, played or launched. Viewing/exporting a raw preview never invokes a received attachment's codec. Full playback and full-resolution viewing of original media are not implemented here. Exporting an original crosses into the chosen external application's security model. Neither the app nor the E2EE relay can promise virus-free originals or immunity to every exploit.
+
+Tests cover malformed/oversize preview data, image pixel bombs, encrypted caption/preview/reply roundtrip, original digest verification, both-language/theme layouts, packaged worker filesystem/network denial and Android isolated UID/filesystem denial. These are regression tests, not a security audit. Physical-device codec/camera behavior and OS-specific AppContainer/bubblewrap policies require separate validation.

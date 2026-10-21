@@ -21,3 +21,6 @@ zxing-cpp==3.1.1
 opencv-python-headless==4.14.0.94
 Pillow==13.0.0
 numpy==2.5.4
+
+# Bundled native codec is only executed inside the media sandbox.
+imageio-ffmpeg==0.6.0

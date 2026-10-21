@@ -23,6 +23,7 @@ from .crypto import (
 )
 from .wire import connect
 from .contact_invite import normalize, check_address
+from .media import validate_preview, validate_reply, attachment_digest
 
 
 def safe_filename(name):
@@ -218,6 +219,8 @@ class Engine:
         file_path=None,
         file_bytes=None,
         filename=None,
+        preview=None,
+        reply_to=None,
     ):
         with self.transaction():
             if ttl is None:
@@ -238,6 +241,8 @@ class Engine:
                 "text": text,
                 "kind": kind,
             }
+            if reply_to is not None:
+                payload["reply"] = validate_reply(reply_to)
             if file_path or file_bytes is not None:
                 if not self.files_enabled:
                     raise ValueError("ارسال فایل غیرفعال است")
@@ -252,6 +257,8 @@ class Engine:
                     kind="file",
                     filename=safe_filename(filename or "file.bin"),
                     file=enc(file_bytes),
+                    file_sha256=attachment_digest(file_bytes),
+                    preview=validate_preview(preview),
                 )
             if payload["kind"] not in ("message", "file", "group"):
                 raise ValueError("Invalid kind")
@@ -396,8 +403,12 @@ class Engine:
             elif payload["kind"] in ("message", "group", "file"):
                 if len(payload.get("text", "")) > 16000:
                     raise ValueError("Too long")
+                if 'reply' in payload:payload['reply']=validate_reply(payload['reply'])
                 if payload["kind"] == "file":
                     safe_filename(payload.get("filename"))
+                    payload['preview']=validate_preview(payload.get('preview'))
+                    if 'file_sha256' in payload and payload['file_sha256'] != attachment_digest(dec(payload['file'])):
+                        raise ValueError('Attachment digest mismatch')
                 if (
                     payload["kind"] == "file"
                     and len(dec(payload["file"])) > 4 * 1024 * 1024
@@ -502,7 +513,10 @@ class Engine:
                 raise ValueError("فایل در دسترس نیست")
             if msg["expires"] <= time.time():
                 raise ValueError("پیام منقضی شده است")
-            return dec(msg["file"])
+            raw=dec(msg['file'])
+            if 'file_sha256' in msg and attachment_digest(raw)!=msg['file_sha256']:
+                raise ValueError('Attachment digest mismatch')
+            return raw
 
     def export_file(self, chat, mid, destination):
         with self.lock:

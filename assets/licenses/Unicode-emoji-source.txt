@@ -1,0 +1,4 @@
+Emoji 17.0 Unicode data: https://www.unicode.org/Public/emoji/17.0/emoji-test.txt
+Unicode data license: https://www.unicode.org/license.txt
+Twemoji graphics: https://github.com/jdecked/twemoji/tree/v17.0.3
+See Twemoji-graphics-LICENSE.txt.

@@ -1,0 +1,4 @@
+FFmpeg bundled by imageio-ffmpeg 0.6.0 wheel.
+Wrapper and binary build provenance: https://github.com/imageio/imageio-ffmpeg/tree/v0.6.0 and https://github.com/imageio/imageio-binaries
+FFmpeg source and licensing: https://ffmpeg.org/download.html and https://ffmpeg.org/legal.html
+The exact binary version/configuration/license is printed in FFmpeg-LICENSE.txt. Platform binaries may differ; all operate only in the media sandbox.

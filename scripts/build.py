@@ -71,5 +71,17 @@ else:
         "main.py",
     ]
 if kind == 'client':
+    # A separate executable is required for Windows AppContainer ACL isolation.
+    import imageio_ffmpeg
+    codec=imageio_ffmpeg.get_ffmpeg_exe()
+    PyInstaller.__main__.run(['--noconfirm','--clean','--onefile','--name','MehrMedia',
+        '--exclude-module','kivy','--exclude-module','cv2','--exclude-module','numpy',
+        '--exclude-module','matplotlib','--exclude-module','tkinter',
+        '--collect-all','imageio_ffmpeg','--add-binary',codec+os.pathsep+'imageio_ffmpeg/binaries','--hidden-import','PIL.JpegImagePlugin',
+        '--hidden-import','PIL.PngImagePlugin','--hidden-import','PIL.GifImagePlugin',
+        '--hidden-import','PIL.WebPImagePlugin','--hidden-import','PIL.TiffImagePlugin',
+        'media_worker_entry.py'])
+    worker = root/'dist'/('MehrMedia.exe' if os.name=='nt' else 'MehrMedia')
+    args += ['--add-binary',str(worker)+os.pathsep+'media-bin']
     args += ['--collect-all', 'zxingcpp', '--collect-all', 'cv2', '--collect-all', 'qrcode']
 PyInstaller.__main__.run(args)

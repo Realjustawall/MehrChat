@@ -53,6 +53,9 @@ def elf(name, raw):
 
 
 with zipfile.ZipFile(args.apk) as z:
+    dex=b''.join(z.read(n) for n in z.namelist() if n.endswith('.dex'))
+    for name in (b'Lorg/mehrchat/preview/PreviewBridge;',b'Lorg/mehrchat/preview/PreviewService;'):
+        assert name in dex,'Isolated media Java class missing from APK: '+name.decode()
     assert {n.split("/")[1] for n in z.namelist() if n.startswith("lib/")} == {
         args.arch
     }
@@ -62,6 +65,8 @@ with zipfile.ZipFile(args.apk) as z:
         names = t.getnames()
         assert any(n in names for n in ("main.py", "main.pyc"))
         assert "assets/Vazirmatn-Regular.ttf" in names
+        assert 'assets/en.json' in names and 'assets/emoji-atlas.json' in names
+        assert all(f'assets/emoji-atlas-{i}.png' in names for i in range(4))
         assert not any(
             Path(n).name in ("transport-key.json", "admin-token.txt", "signing-password.txt")
             or Path(n).suffix.lower() in (".mcv", ".restore", ".sqlite", ".p12", ".pfx", ".jks", ".keystore")
@@ -129,6 +134,11 @@ assert "allowBackup" in xml and any(
 assert not args.release or not any(
     "debuggable" in l and "=true" in l for l in xml.splitlines()
 )
+service_lines=xml.splitlines()
+service_index=next(i for i,line in enumerate(service_lines) if 'org.mehrchat.preview.PreviewService' in line)
+service_block='\n'.join(service_lines[max(0,service_index-3):service_index+8])
+assert 'isolatedProcess' in service_block and any('isolatedProcess' in line and '=true' in line for line in service_block.splitlines())
+assert any('exported' in line and '=false' in line for line in service_block.splitlines())
 if not args.release:
     subprocess.run(
         [str(args.build_tools / "apksigner"), "verify", "--verbose", str(args.apk)],
