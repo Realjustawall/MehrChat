@@ -111,12 +111,14 @@ class ChatWallpaper(Widget):
         with self.canvas:
             Color(.84,.89,.89,1)
             Rectangle(pos=self.pos,size=self.size)
-            Color(.46,.62,.61,.12)
-            for row in range(int(self.height/dp(110))+1):
-                for col in range(int(self.width/dp(110))+1):
-                    x=self.x+col*dp(110)+(dp(45) if row%2 else 0); y=self.y+row*dp(110)
-                    Line(circle=(x+dp(25),y+dp(25),dp(12)),width=dp(1.1))
-                    Line(points=(x+dp(60),y+dp(60),x+dp(78),y+dp(68),x+dp(67),y+dp(77),x+dp(60),y+dp(60)),width=dp(1.1))
+            texture = CoreImage(str(ASSETS / 'telegram-chat-pattern.png')).texture
+            texture.wrap = 'repeat'
+            repeat_x = self.width / dp(540)
+            repeat_y = self.height / dp(540)
+            Color(1,1,1,.12)
+            Rectangle(texture=texture,pos=self.pos,size=self.size,
+                      tex_coords=(0,0,repeat_x,0,repeat_x,repeat_y,0,repeat_y))
+
 
 
 def input_texture(value, size):

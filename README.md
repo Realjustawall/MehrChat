@@ -44,7 +44,7 @@ Upgrade the relay for short-address search. Its existing `users` database is mig
 
 ## Interface and licenses
 
-Desktop and Android use the same responsive native interface with a Telegram Web inspired light layout, pixel-measured Persian/English wrapping, compact scrollable dialogs, offline color emoji, and a camera/QR contact flow. The Windows interface remains native; it does not log into Telegram or load a remote website. Toolbar icons are adapted from **Telegram Web A** (`Ajaxy/telegram-tt`, commit `f67a40879a7d78c2683ec5a296cf55bc22417d56`), with the converted font and provenance bundled in `assets/telegram-source.txt`. This version is distributed under **GPL-3.0**; see `LICENSE` and `assets/licenses/Telegram-Web-GPL-3.0.txt`.
+Desktop and Android use the same responsive native interface with a Telegram Web inspired light layout, pixel-measured Persian/English wrapping, compact scrollable dialogs, offline color emoji, and a camera/QR contact flow. The Windows interface remains native; it does not log into Telegram or load a remote website. Toolbar icons and the chat wallpaper are adapted from **Telegram Web A** (`Ajaxy/telegram-tt`, commit `f67a40879a7d78c2683ec5a296cf55bc22417d56`), with the converted font and provenance bundled in `assets/telegram-source.txt`. This version is distributed under **GPL-3.0**; see `LICENSE` and `assets/licenses/Telegram-Web-GPL-3.0.txt`.
 
 Emoji graphics are **Twemoji 16.0.1**, © Twitter and contributors, **CC-BY-4.0**; see `assets/licenses/Twemoji-graphics-LICENSE.txt`. The in-app About screen includes attribution. No Telegram logo, Telegram service integration or affiliation is implied.
 
