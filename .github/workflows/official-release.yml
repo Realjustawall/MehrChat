@@ -66,15 +66,28 @@ jobs:
             for (const name of ['native-reports-Windows','native-reports-Linux','android-reports-x86_64','MehrChat-Windows-native','MehrChat-Linux-native','MehrChat-Android-arm64-v8a']) {
               if (!latest.has(name)) throw new Error('Missing verified artifact: '+name);
             }
-            core.setOutput('artifacts',[...latest.values()].map(a=>a.id).join(','));
+            core.setOutput('artifacts',JSON.stringify([...latest.values()].map(a=>({id:a.id,name:a.name}))));
       - name: Use exact verified release source
         run: git checkout --detach '${{ steps.verified.outputs.release }}'
-      - uses: actions/download-artifact@v4
+      - name: Download exact selected artifact IDs
+        uses: actions/github-script@v7
+        env:
+          SELECTED_ARTIFACTS: ${{ steps.verified.outputs.artifacts }}
         with:
-          run-id: ${{ steps.verified.outputs.run }}
-          artifact-ids: ${{ steps.verified.outputs.artifacts }}
-          github-token: ${{ github.token }}
-          path: verified-artifacts
+          script: |
+            const fs = require('fs');
+            const {execFileSync} = require('child_process');
+            for (const artifact of JSON.parse(process.env.SELECTED_ARTIFACTS)) {
+              if (!/^[a-zA-Z0-9_.-]+$/.test(artifact.name)) throw new Error('Invalid artifact name');
+              const archive = await github.rest.actions.downloadArtifact({...context.repo,artifact_id:artifact.id,archive_format:'zip'});
+              const file = 'artifact-'+artifact.id+'.zip';
+              fs.writeFileSync(file,Buffer.from(archive.data));
+              const destination = 'verified-artifacts/'+artifact.name;
+              fs.mkdirSync(destination,{recursive:true});
+              execFileSync('unzip',['-q',file,'-d',destination]);
+              fs.unlinkSync(file);
+              core.info('Downloaded exact artifact '+artifact.name+' (#'+artifact.id+')');
+            }
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
