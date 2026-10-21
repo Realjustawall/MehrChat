@@ -19,7 +19,8 @@ def run():
         with tempfile.TemporaryDirectory() as directory:
             app.data_path = lambda: Path(directory) / "identity.mcv"
             install(app, os.environ["MEHRCHAT_SMOKE_RESULT"])
-            app.run()
+            try:app.run()
+            finally:app.on_stop()
     else:
         if mode == "1":
             from kivy.clock import Clock

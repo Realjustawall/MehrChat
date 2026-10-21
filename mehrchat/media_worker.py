@@ -8,6 +8,7 @@ import os
 import struct
 import subprocess
 import sys
+import tempfile
 import warnings
 import zlib
 
@@ -54,11 +55,19 @@ def decode_image(raw):
         return encode_rgb('image',ImageOps.exif_transpose(image))
 
 def decode_av(raw,kind):
-    # No arbitrary URI, playlist, path, shell, or remote protocol is accepted.
+    # Only a sandbox-private seekable input is exposed to the codec. Always
+    # remove it, including missing-sandbox, decoder-error and timeout paths.
+    with tempfile.TemporaryDirectory(prefix='mehr-preview-') as directory:
+        input_path=os.path.join(directory,'input.media')
+        with open(input_path,'wb') as stream:stream.write(raw)
+        return _decode_av(kind,input_path)
+
+
+def _decode_av(kind,input_path):
     import imageio_ffmpeg
     executable=imageio_ffmpeg.get_ffmpeg_exe()
     command=[executable,'-hide_banner','-loglevel','error','-nostdin','-threads','1',
-             '-protocol_whitelist','pipe','-i','pipe:0']
+             '-protocol_whitelist','file,pipe','-i',input_path]
     if kind=='video':
         command+=['-an','-frames:v','1','-vf','scale=256:256:force_original_aspect_ratio=decrease,pad=256:256:(ow-iw)/2:(oh-ih)/2',
                   '-pix_fmt','rgb24','-f','rawvideo','pipe:1']
@@ -73,8 +82,9 @@ def decode_av(raw,kind):
         if not sandbox:raise OSError('Media sandbox unavailable')
         command=[sandbox,'--die-with-parent','--unshare-all','--new-session','--cap-drop','ALL',
                  '--ro-bind','/usr','/usr','--ro-bind','/lib','/lib','--proc','/proc','--dev','/dev','--tmpfs','/tmp',
-                 '--ro-bind','/lib64','/lib64','--ro-bind',executable,'/tmp/ffmpeg','--chdir','/tmp','/tmp/ffmpeg',*command[1:]]
-    result=subprocess.run(command,input=raw,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=8,check=True)
+                 '--ro-bind','/lib64','/lib64','--ro-bind',executable,'/tmp/ffmpeg','--ro-bind',input_path,'/tmp/input.media',
+                 '--chdir','/tmp','/tmp/ffmpeg',*['/tmp/input.media' if x==input_path else x for x in command[1:]]]
+    result=subprocess.run(command,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=8,check=True)
     if len(result.stdout)>maximum:raise ValueError('Decoder output exceeds limits')
     if kind=='video':
         if len(result.stdout)!=maximum:raise ValueError('Missing video frame')

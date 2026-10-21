@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import subprocess
 import threading
+import inspect
 
 class SecurityAttributes(C.Structure):
     _fields_=[('nLength',W.DWORD),('lpSecurityDescriptor',C.c_void_p),('bInheritHandle',W.BOOL)]
@@ -58,7 +59,9 @@ def libraries():
     return kernel,user,adv
 
 def check(result):
-    if not result:raise C.WinError(C.get_last_error())
+    if not result:
+        error=C.WinError(C.get_last_error())
+        raise OSError('Windows sandbox setup line '+str(inspect.currentframe().f_back.f_lineno)+': '+repr(error))
     return result
 
 @lru_cache(maxsize=2)
@@ -83,7 +86,7 @@ def run_isolated(executable,raw,timeout=15):
     caps=Capabilities(sid,None,0,0);sa=SecurityAttributes(C.sizeof(SecurityAttributes),None,True)
     input_read,input_write,output_read,output_write=(W.HANDLE() for _ in range(4))
     handles=[];process=Process();attributes=None;job=None
-    result=bytearray();errors=[]
+    result=bytearray();errors=[];writer_started=False
     try:
         check(kernel.CreatePipe(C.byref(input_read),C.byref(input_write),C.byref(sa),0));handles.extend([input_read,input_write])
         check(kernel.CreatePipe(C.byref(output_read),C.byref(output_write),C.byref(sa),0));handles.extend([output_read,output_write])
@@ -100,6 +103,8 @@ def run_isolated(executable,raw,timeout=15):
         startup.StartupInfo.dwFlags=0x100;startup.StartupInfo.hStdInput=input_read;startup.StartupInfo.hStdOutput=output_write;startup.StartupInfo.hStdError=null
         env={'SystemRoot':os.environ['SystemRoot'],'WINDIR':os.environ.get('WINDIR',os.environ['SystemRoot']),
              'TEMP':temp,'TMP':temp,'PYINSTALLER_RESET_ENVIRONMENT':'1'}
+        for name in ('SystemDrive','USERPROFILE','LOCALAPPDATA','APPDATA','ProgramData','ProgramFiles','ProgramFiles(x86)','CommonProgramFiles'):
+            if name in os.environ:env[name]=os.environ[name]
         environment=C.create_unicode_buffer('\0'.join(k+'='+v for k,v in sorted(env.items()))+'\0\0')
         command=C.create_unicode_buffer(subprocess.list2cmdline([str(executable)]))
         check(kernel.CreateProcessW(str(executable),command,None,None,True,0x00080000|0x400|4|0x08000000,
@@ -126,7 +131,7 @@ def run_isolated(executable,raw,timeout=15):
                 if len(result)>272048:
                     errors.append('output');kernel.TerminateJobObject(job,2);break
         writer=threading.Thread(target=write,daemon=True);reader=threading.Thread(target=read,daemon=True)
-        writer.start();reader.start();kernel.ResumeThread(process.hThread)
+        writer.start();writer_started=True;reader.start();kernel.ResumeThread(process.hThread)
         status=kernel.WaitForSingleObject(process.hProcess,int(timeout*1000))
         if status!=0:raise OSError('Preview timeout')
         code=W.DWORD();check(kernel.GetExitCodeProcess(process.hProcess,C.byref(code)))
@@ -136,7 +141,7 @@ def run_isolated(executable,raw,timeout=15):
     finally:
         if job:kernel.CloseHandle(job)
         for handle in handles:
-            if handle is not input_write:kernel.CloseHandle(handle)
+            if handle is not input_write or not writer_started:kernel.CloseHandle(handle)
         for handle in (process.hThread,process.hProcess):
             if handle:kernel.CloseHandle(handle)
         if attributes is not None:kernel.DeleteProcThreadAttributeList(attributes)

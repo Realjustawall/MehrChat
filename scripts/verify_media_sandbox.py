@@ -35,5 +35,11 @@ with tempfile.TemporaryDirectory() as directory,socket.socket() as listener:
     if os.name=='nt':
         audio=validate_preview(json.loads(run(pcm.getvalue())))
         assert audio['kind']=='audio' and audio['waveform']
+        import imageio_ffmpeg
+        clip=Path(directory)/'fixture.mp4'
+        subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(),'-hide_banner','-loglevel','error','-f','lavfi',
+                        '-i','color=c=red:s=64x48:r=4','-t','1','-c:v','libx264','-threads','1',str(clip)],check=True)
+        video=validate_preview(json.loads(run(clip.read_bytes())))
+        assert video['kind']=='video' and len(preview_pixels(video))==256*256*3
     print(json.dumps(dict(files_denied=True,network_denied=True,packaged_image_decoder=True,pixel_bomb_rejected=True)))
     print('PACKAGED_MEDIA_SANDBOX_PASS')
