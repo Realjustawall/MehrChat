@@ -186,6 +186,14 @@ def install(app, result_path):
         def next_step(*_):
             nonlocal pending_capture
             if pending_capture:
+                if pending_capture == '03-private-chat':
+                    assert app.compose.text == private_draft
+                    for logical, rect in zip(app.compose._lines, app.compose._lines_rects):
+                        if logical.strip():
+                            assert max(rect.tex_coords[1::2])-min(rect.tex_coords[1::2]) > 0, 'Composer cropped a zero-height texture region'
+                    pixels = app.compose.export_as_image().texture.pixels
+                    assert any(pixels[i+3] and max(pixels[i:i+3])<180 for i in range(0,len(pixels),4)), 'No visible composed draft text'
+                    assert any(pixels[i+3] and min(pixels[i:i+3])>210 for i in range(0,len(pixels),4)), 'Composer render lost its background'
                 capture(pending_capture)
             for popup in list(app.open_popups):
                 popup.dismiss()
@@ -266,6 +274,7 @@ def install(app, result_path):
                     assert app.sidebar.width == 0
                     assert app.mainpane.right <= app.root.width + 1
                     result = dict(
+                        composed_draft_visible=True,
                         multiline_emoji_composer=True,
                         contact_qr_pixel_decode=True,
                         contact_invite_autofill=True,

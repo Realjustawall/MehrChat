@@ -8,7 +8,7 @@ from bidi.algorithm import get_display
 from kivy.core.text import Label as CoreLabel
 from kivy.clock import Clock
 from kivy.core.image import Image as CoreImage
-from kivy.graphics import Color, Rectangle, Line, Fbo, ClearColor, ClearBuffers
+from kivy.graphics import Color, Rectangle, Line, Fbo, ClearColor, ClearBuffers, Scale, Translate
 from kivy.metrics import dp
 from kivy.uix.widget import Widget
 from kivy.properties import StringProperty, NumericProperty
@@ -134,8 +134,11 @@ def input_texture(value, size):
     fbo=Fbo(size=(width,height))
     with fbo:
         ClearColor(0,0,0,0);ClearBuffers();Color(1,1,1,1)
+        Scale(1,-1,1);Translate(0,-height,0)
         x=0
         for texture,w,h in rendered:
             Rectangle(texture=texture,pos=(x,(height-h)/2),size=(w,h));x+=w
     fbo.draw()
+    # TextInput crops line textures using top-origin CoreLabel UV coordinates.
+    fbo.texture.flip_vertical()
     return fbo

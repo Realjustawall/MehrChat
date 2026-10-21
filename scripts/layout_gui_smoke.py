@@ -57,6 +57,11 @@ def assert_messages(*_):
         if not logical.strip():continue
         rgba=texture.pixels
         assert any(rgba[i+3]>0 and min(rgba[i:i+3])<180 for i in range(0,len(rgba),4)), 'A plain composer line became white when another line contained emoji'
+    for logical,rect in zip(app.compose._lines,app.compose._lines_rects):
+        if logical.strip():
+            assert max(rect.tex_coords[1::2])-min(rect.tex_coords[1::2])>0, 'Composer rendered a zero-height texture region'
+    composed=app.compose.export_as_image().texture.pixels
+    assert any(composed[i+3]>0 and max(composed[i:i+3])<180 for i in range(0,len(composed),4)), 'Composited input contains no visible text'
     app.contact_dialog()
     Clock.schedule_once(assert_dialog,.3)
 
