@@ -11,6 +11,7 @@ import sys
 import tempfile
 import warnings
 import zlib
+from contextlib import contextmanager
 
 LIMIT=4*1024*1024
 
@@ -54,10 +55,26 @@ def decode_image(raw):
         image.seek(0);image.load()
         return encode_rgb('image',ImageOps.exif_transpose(image))
 
+@contextmanager
+def media_directory():
+    if os.name!='nt':
+        with tempfile.TemporaryDirectory(prefix='mehr-preview-') as directory:
+            yield directory
+        return
+    # Windows Python treats mkdir(0700), used by TemporaryDirectory, as a
+    # replacement DACL for the user SID. That drops the restricted package SID
+    # and denies the AppContainer its own newly created directory. Inherit the
+    # already private package-temp ACL instead; grant no access outside it.
+    import secrets,shutil
+    directory=os.path.join(tempfile.gettempdir(),'mehr-preview-'+secrets.token_hex(16))
+    os.mkdir(directory,0o777)
+    try:yield directory
+    finally:shutil.rmtree(directory)
+
 def decode_av(raw,kind):
     # Only a sandbox-private seekable input is exposed to the codec. Always
     # remove it, including missing-sandbox, decoder-error and timeout paths.
-    with tempfile.TemporaryDirectory(prefix='mehr-preview-') as directory:
+    with media_directory() as directory:
         input_path=os.path.join(directory,'input.media')
         with open(input_path,'wb') as stream:stream.write(raw)
         return _decode_av(kind,input_path)
@@ -111,7 +128,8 @@ def run():
             with open(request['canary'],'rb') as stream:stream.read(1)
         except (PermissionError,FileNotFoundError):denied_file=True
         try:
-            sock=socket.socket();sock.settimeout(1);sock.connect(('127.0.0.1',request['port']));sock.close()
+            with socket.socket() as sock:
+                sock.settimeout(1);sock.connect(('127.0.0.1',request['port']))
         except (PermissionError,TimeoutError):denied_network=True
         sys.stdout.write(json.dumps(dict(files_denied=denied_file,network_denied=denied_network)))
         return 0

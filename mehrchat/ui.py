@@ -854,7 +854,7 @@ class MehrApp(App):
             )
             if not last and cid in self.engine.d["groups"]:
                 preview = (
-                    str(len(self.engine.d["groups"][cid]["body"]["members"])) + " عضو"
+                    str(len(self.engine.d["groups"][cid]["body"]["members"])) + tr(" عضو")
                 )
             row = ChatRow(
                 size_hint_y=None,
