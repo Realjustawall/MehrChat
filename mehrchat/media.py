@@ -50,7 +50,7 @@ def rgb_preview(kind,width,height,rgb,duration=0):
     return validate_preview({'v':1,'kind':kind,'width':width,'height':height,
                              'rgb':base64.b64encode(rgb).decode(),'duration':duration})
 
-def make_preview(raw):
+def make_preview(raw,strict=False):
     """Only runs for an explicitly selected local file. Failure returns no preview."""
     if not raw or len(raw)>MAX_FILE:return None
     kind=media_kind(raw)
@@ -61,7 +61,9 @@ def make_preview(raw):
     worker=Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent.parent))/'media-bin'/('MehrMedia.exe' if os.name=='nt' else 'MehrMedia')
     if worker.is_file():command=[str(worker)]
     elif not getattr(sys,'frozen',False):command=[sys.executable,str(Path(__file__).resolve().parent.parent/'media_worker_entry.py')]
-    else:return None
+    else:
+        if strict:raise OSError('Packaged media worker is missing')
+        return None
     try:
         if os.name=='nt':
             if not worker.is_file():return None  # fail closed: source Python has no AppContainer ACL
@@ -88,7 +90,9 @@ def make_preview(raw):
                 timer.cancel();terminate();process.wait(timeout=2);process.stdout.close();writer.join(1)
         if len(output)>MAX_ENCODED+2048:return None
         return validate_preview(json.loads(output))
-    except (OSError,ValueError,subprocess.SubprocessError):return None
+    except (OSError,ValueError,subprocess.SubprocessError):
+        if strict:raise
+        return None
 
 def attachment_digest(raw):return hashlib.sha256(raw).hexdigest()
 

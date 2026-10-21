@@ -131,7 +131,7 @@ def run_isolated(executable,raw,timeout=15):
         if status!=0:raise OSError('Preview timeout')
         code=W.DWORD();check(kernel.GetExitCodeProcess(process.hProcess,C.byref(code)))
         reader.join(1);writer.join(1)
-        if code.value or errors or reader.is_alive():raise OSError('Preview worker rejected media')
+        if code.value or errors or reader.is_alive():raise OSError('Preview worker exit '+str(code.value)+'; '+repr(errors)+'; '+repr(bytes(result[:512])))
         return bytes(result)
     finally:
         if job:kernel.CloseHandle(job)

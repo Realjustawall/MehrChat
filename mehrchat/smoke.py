@@ -304,7 +304,7 @@ def install(app, result_path):
                         try:
                             from .media import make_preview,preview_pixels
                             from .contact_invite import qr_png
-                            preview=make_preview(qr_png('MehrChat sandbox fixture'))
+                            preview=make_preview(qr_png('MehrChat sandbox fixture'),strict=True)
                             assert preview and preview['kind']=='image' and len(preview_pixels(preview))<=256*256*3
                             result['isolated_media_preview']=True
                             if platform=='android':

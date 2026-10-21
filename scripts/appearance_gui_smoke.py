@@ -1,5 +1,5 @@
 """Real UI regression: logical Persian, both languages/themes, narrow viewport."""
-import io,json,sys,tempfile
+import io,json,sys,tempfile,time
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from kivy.clock import Clock
@@ -46,11 +46,15 @@ def next_case(*_):
     if not cases:
         print(json.dumps(results));print('BILINGUAL_THEME_MEDIA_PASS');app.stop();return
     language,theme=cases.pop(0);draft=app.compose.text
+    app._appearance_settle_deadline=time.monotonic()+5
     app.set_appearance(language=language,theme=theme)
     assert app.compose.text==draft
     Clock.schedule_once(check,.5)
 
 def check(*_):
+    pending=[w for w in app.messagebox.walk() if isinstance(w,MessageText) and not hasattr(w,'line_widths')]
+    if pending and time.monotonic()<app._appearance_settle_deadline:
+        Clock.schedule_once(check,.1);return
     assert app.compose.width>dp(80) and app.compose.right<=Window.width
     for widget in app.messagebox.walk():
         if isinstance(widget,MessageText):
