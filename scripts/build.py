@@ -48,6 +48,10 @@ if kind == "client" and sys.platform == "win32":
 if sys.platform.startswith("linux"):
     args += ["--strip"]
 if kind == "server":
+    # Contact address logic is shared with the client; its optional QR helpers
+    # must not pull a window provider or camera stack into a headless relay.
+    for module in ('kivy', 'cv2', 'zxingcpp', 'numpy', 'PIL', 'qrcode'):
+        args += ['--exclude-module', module]
     args += [
         "--onefile",
         "--name",
