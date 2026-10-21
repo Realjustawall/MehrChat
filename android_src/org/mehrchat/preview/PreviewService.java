@@ -20,10 +20,10 @@ public final class PreviewService extends Service {
     private final Messenger endpoint=new Messenger(new Handler(Looper.getMainLooper()) {
         @Override public void handleMessage(Message message) {
             if(message.what==99){ android.os.Process.killProcess(android.os.Process.myPid());return; }
-            final Messenger reply=message.replyTo;
             final Bundle args=message.getData();
             args.setClassLoader(ParcelFileDescriptor.class.getClassLoader());
             final ParcelFileDescriptor fd=args.getParcelable("input");
+            final ParcelFileDescriptor output=args.getParcelable("output");
             final String kind=args.getString("kind","");
             executor.submit(()->{
                 String result="";
@@ -41,8 +41,10 @@ public final class PreviewService extends Service {
                     else if(kind.equals("video")||kind.equals("audio"))value=av(raw,kind);
                     else throw new IOException();
                     result=value.toString();if(result.length()>272048)result="";
-                }catch(Exception|OutOfMemoryError failure){result="";}
-                try {Message answer=Message.obtain(null,1);Bundle data=new Bundle();data.putString("json",result);answer.setData(data);reply.send(answer);}catch(Exception ignored){}
+                }catch(Exception|OutOfMemoryError failure){result="";android.util.Log.w("MehrPreview","Decoder rejected "+failure.getClass().getSimpleName());}
+                try(OutputStream stream=new ParcelFileDescriptor.AutoCloseOutputStream(output)){
+                    stream.write(result.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }catch(IOException ignored){}
             });
         }
     });
