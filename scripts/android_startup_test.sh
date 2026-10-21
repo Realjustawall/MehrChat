@@ -50,6 +50,7 @@ import json
 from pathlib import Path
 result=json.loads(Path('reports/android-gui-flow.json').read_text())
 assert result and all(result.values()) and result.get("tcp_noise_e2ee_request_reply") and result.get("tls_noise_e2ee_request_reply"),result
+assert result.get('isolated_android_uid_and_files') and result.get('isolated_android_audio_video_previews'),result
 print('Android encrypted account / Persian chat / group / dialogs / lock / restore: PASS')
 PY
 printf 'APK installed and shared GUI flows completed on API 35 emulator: PASS\n' >> reports/android-launch.txt

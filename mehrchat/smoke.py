@@ -315,6 +315,12 @@ def install(app, result_path):
                                 finally:canary.unlink(missing_ok=True)
                                 assert isolated['files_denied'] and isolated['uid_isolated'],isolated
                                 result['isolated_android_uid_and_files']=True
+                                from .media_test_fixtures import audio,video
+                                sound=make_preview(audio(),strict=True)
+                                assert sound and sound['kind']=='audio' and max(sound['waveform'],default=0)>0
+                                cover=make_preview(video(),strict=True)
+                                assert cover and cover['kind']=='video' and len(preview_pixels(cover))<=256*256*3
+                                result['isolated_android_audio_video_previews']=True
                             modes=[('fa','light'),('fa','dark'),('en','light'),('en','dark')]
                             def completed(*_):
                                 if modes:

@@ -107,6 +107,24 @@ public final class PreviewService extends Service {
             if(format==null)throw new IOException();
             int rate=format.getInteger(MediaFormat.KEY_SAMPLE_RATE),channels=format.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
             if(rate<4000||rate>192000||channels<1||channels>8)throw new IOException();
+            if("audio/raw".equals(format.getString(MediaFormat.KEY_MIME))){
+                // PCM from WAV is already decoded by the extractor. Android
+                // does not provide a MediaCodec decoder for audio/raw.
+                ByteBuffer input=ByteBuffer.allocate(65536).order(ByteOrder.LITTLE_ENDIAN);
+                int encoding=format.containsKey(MediaFormat.KEY_PCM_ENCODING)?format.getInteger(MediaFormat.KEY_PCM_ENCODING):AudioFormat.ENCODING_PCM_16BIT;
+                if(encoding!=AudioFormat.ENCODING_PCM_16BIT&&encoding!=AudioFormat.ENCODING_PCM_FLOAT)throw new IOException();
+                long samples=0,deadline=System.nanoTime()+6_000_000_000L;
+                while(System.nanoTime()<deadline&&samples<(long)rate*channels*30){
+                    input.clear();int n=extractor.readSampleData(input,0);if(n<=0)break;input.position(0);input.limit(n);
+                    while(input.remaining()>=(encoding==AudioFormat.ENCODING_PCM_FLOAT?4:2)&&samples<(long)rate*channels*30){
+                        float amplitude=encoding==AudioFormat.ENCODING_PCM_FLOAT?Math.abs(input.getFloat()):Math.abs((int)input.getShort())/32768f;
+                        int bucket=(int)Math.min(63,samples*2/((long)rate*channels));peaks[bucket]=Math.max(peaks[bucket],Math.min(255,(int)(amplitude*255)));used=Math.max(used,bucket+1);samples++;
+                    }
+                    if(!extractor.advance())break;
+                }
+                if(used==0)throw new IOException();
+                JSONArray result=new JSONArray();for(int i=0;i<used;i++)result.put(peaks[i]);return result;
+            }
             codec=MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME));codec.configure(format,null,null,0);codec.start();
             MediaCodec.BufferInfo info=new MediaCodec.BufferInfo();boolean inputDone=false,done=false;long samples=0,deadline=System.nanoTime()+6_000_000_000L;
             while(!done&&System.nanoTime()<deadline&&samples<(long)rate*channels*30){
