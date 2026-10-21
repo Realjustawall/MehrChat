@@ -875,7 +875,8 @@ class MehrApp(App):
                 if own:
                     checks = label('', size_hint_x=None, width=dp(23), font_size=dp(16))
                     checks.font_name = str(ROOT / 'assets/TelegramIcons.ttf')
-                    checks.text = ICONS.get('message-read' if m['state'] == 'تحویل شد' else 'check', ICONS.get('check', ''))
+                    state_icon = 'message-read' if m['state'] == 'تحویل شد' else ('check' if m['state'] == 'به سرور رسید' else ('clock' if m['state'] == 'در انتظار ارسال' else 'warning'))
+                    checks.text = ICONS[state_icon]
                     checks.color = (.25,.57,.32,1)
                     footer.add_widget(checks)
                 menu = button(
@@ -1317,6 +1318,7 @@ class MehrApp(App):
         chat = self.chat
         message = next(m for m in self.engine.d["messages"][chat] if m["id"] == mid)
         box = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
+        box.add_widget(wrapped_label(message["state"], size_hint_y=None, height=dp(40), font_size=dp(13)))
         pop = self.dialog("پیام", box)
 
         def delete():
