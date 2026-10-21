@@ -28,12 +28,12 @@ def address(card):
 
 def normalize(number, code):
     if len(str(number)) > 64 or len(str(code)) > 16:
-        raise ValueError('شناسه یا رمز اشتراک معتبر نیست')
+        raise ValueError('شناسه یا کد عمومی تطبیق معتبر نیست')
     number = ''.join(str(unicodedata.digit(c)) if c.isdigit() else c for c in str(number))
     number = re.sub(r'[\s-]', '', number)
     code = str(code).strip().upper()
     if not re.fullmatch(r'[0-9]{12}', number) or not re.fullmatch(r'[A-Z]{5}', code):
-        raise ValueError('شناسه باید ۱۲ رقم و رمز اشتراک باید ۵ حرف انگلیسی باشد')
+        raise ValueError('شناسه باید ۱۲ رقم و کد عمومی تطبیق باید ۵ حرف انگلیسی باشد')
     return number, code
 
 
@@ -41,7 +41,7 @@ def check_address(card, number, code):
     import hmac
     supplied = ''.join(normalize(number, code))
     if not hmac.compare_digest(''.join(address(card)), supplied):
-        raise ValueError('شناسه و رمز اشتراک با هویت مخاطب مطابقت ندارند')
+        raise ValueError('شناسه و کد عمومی تطبیق با هویت مخاطب مطابقت ندارند')
     return check_card(card)
 
 
@@ -83,38 +83,20 @@ def qr_png(payload, scale=6):
 
 
 def decode_image(raw):
-    if len(raw) > 12 * 1024 * 1024:
-        raise ValueError('حداکثر حجم تصویر ۱۲ مگابایت است')
+    if not raw or len(raw) > 4 * 1024 * 1024:
+        raise ValueError('حداکثر حجم تصویر QR چهار مگابایت است')
     from kivy.utils import platform
     if platform == 'android':
-        from jnius import autoclass
-        BitmapFactory = autoclass('android.graphics.BitmapFactory')
-        options = autoclass('android.graphics.BitmapFactory$Options')()
-        options.inJustDecodeBounds = True
-        BitmapFactory.decodeByteArray(raw, 0, len(raw), options)
-        if options.outWidth <= 0 or options.outHeight <= 0 or options.outWidth * options.outHeight > 24_000_000:
-            raise ValueError('تصویر معتبر یا قابل پردازش نیست')
-        options.inJustDecodeBounds = False
-        bitmap = BitmapFactory.decodeByteArray(raw, 0, len(raw), options)
-        if bitmap is None:
-            raise ValueError('تصویر قابل خواندن نیست')
-        try:
-            width, height = bitmap.getWidth(), bitmap.getHeight()
-            pixels = [0] * (width * height)
-            bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-            # pyjnius reflects Java int[] changes back into this list.
-            return decode_android_pixels(width, height, pixels)
-        finally:
-            bitmap.recycle()
-    from PIL import Image
-    import zxingcpp
-    with Image.open(io.BytesIO(raw)) as image:
-        if image.width * image.height > 24_000_000:
-            raise ValueError('تصویر بسیار بزرگ است')
-        result = zxingcpp.read_barcode(image, formats=zxingcpp.BarcodeFormat.QRCode)
-    if not result:
+        from .android_preview import create_preview
+        value = create_preview(raw, 'qr')
+    else:
+        from .media import run_isolated_decoder
+        value = run_isolated_decoder(b'MEHRCHAT_QR_V1\0' + raw)
+    if (not isinstance(value, dict) or set(value) != {'qr'}
+            or not isinstance(value['qr'], str) or len(value['qr'].encode()) > MAX_INVITE):
         raise ValueError('کد QR در تصویر پیدا نشد')
-    return result.text
+    parse_invite(value['qr'])
+    return value['qr']
 
 
 def decode_android_pixels(width, height, pixels):

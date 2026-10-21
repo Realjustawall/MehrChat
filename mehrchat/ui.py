@@ -1291,9 +1291,9 @@ class MehrApp(App):
         box.add_widget(label(self.engine.identity['name'], font_size=sp(22 * appearance.text_scale), size_hint_y=None, height=dp(36)))
         box.add_widget(label(' '.join(number[i:i+4] for i in range(0,12,4)), font_size=sp(27 * appearance.text_scale), size_hint_y=None, height=dp(42)))
         box.add_widget(label(secret, font_size=sp(23 * appearance.text_scale), size_hint_y=None, height=dp(36)))
-        box.add_widget(wrapped_label('مخاطب QR را اسکن کند یا شناسه و رمز ۵ حرفی را وارد کند. این رمز، رمز ورود حساب شما نیست.', font_size=sp(13 * appearance.text_scale), size_hint_y=None, height=dp(70)))
+        box.add_widget(wrapped_label('مخاطب QR را اسکن کند یا شناسه و کد ۵ حرفی را وارد کند. این رمز، رمز ورود حساب شما نیست.', font_size=sp(13 * appearance.text_scale), size_hint_y=None, height=dp(70)))
         pop = self.dialog('QR و شناسه من', box)
-        box.add_widget(button('کپی شناسه و رمز', lambda: Clipboard.copy(number + ' ' + secret)))
+        box.add_widget(button('کپی شناسه و کد', lambda: Clipboard.copy(number + ' ' + secret)))
         box.add_widget(button('کپی لینک مخاطب', lambda: Clipboard.copy(payload), background_color=BG))
         box.add_widget(button('ذخیره تصویر QR', lambda: self.choose_document('save','mehr-contact.png',lambda f:f.write(image_data)), background_color=BG))
         box.add_widget(button('ذخیره کارت', lambda: self.choose_document('save','identity.json',lambda f:f.write(json.dumps(card,ensure_ascii=False).encode())), background_color=BG))
@@ -1301,8 +1301,8 @@ class MehrApp(App):
 
     def contact_dialog(self):
         box = BoxLayout(orientation='vertical', spacing=dp(12), padding=dp(4))
-        box.add_widget(wrapped_label('با شناسه و رمز اشتراک یا QR، مخاطب را پیدا کنید.', size_hint_y=None, height=dp(48), font_size=sp(14 * appearance.text_scale)))
-        number, secret = field('شناسه ۱۲ رقمی'), field('رمز اشتراک ۵ حرفی')
+        box.add_widget(wrapped_label('با شناسه و کد عمومی یا QR مخاطب را بیابید. این کد رمز حساب نیست؛ هویت را از مسیر مطمئن تأیید کنید.', size_hint_y=None, height=dp(84), font_size=sp(14 * appearance.text_scale)))
+        number, secret = field('شناسه ۱۲ رقمی'), field('کد عمومی تطبیق ۵ حرفی')
         number.input_filter = lambda value, undo: ''.join(c for c in value if c.isdecimal() or c in ' -')
         number.halign = secret.halign = 'center'
         number.font_size = dp(23)
@@ -1338,7 +1338,7 @@ class MehrApp(App):
             else:
                 match = re.fullmatch(r'([\d\s-]{12,20})\s+([a-zA-Z]{5})', value)
                 if not match:
-                    raise ValueError('لینک مخاطب یا شناسه و رمز اشتراک را کپی کنید')
+                    raise ValueError('لینک مخاطب یا شناسه و کد عمومی تطبیق را کپی کنید')
                 number.text, secret.text = match.groups()
         def lookup():
             key = engine.lookup_contact(number.text, secret.text)
@@ -1353,7 +1353,7 @@ class MehrApp(App):
                     if result.get('card'):
                         self.guarded(lambda:fill(result['card']))
                     else:
-                        preview.text = fa('مخاطب پیدا نشد؛ شناسه، رمز و سرور مشترک را بررسی کنید.')
+                        preview.text = fa('مخاطب پیدا نشد؛ شناسه، کد و سرور مشترک را بررسی کنید.')
                     return False
                 if time.monotonic() >= deadline:
                     preview.text = fa('پاسخی دریافت نشد. اتصال را بررسی کنید یا QR مخاطب را اسکن کنید.')
@@ -1365,7 +1365,7 @@ class MehrApp(App):
         actions = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
         actions.add_widget(button('اسکن QR', lambda:self.scan_qr(lambda value:self.guarded(lambda:scanned(value))), background_color=BG))
         def load_image(stream):
-            raw=stream.read(12*1024*1024+1)
+            raw=stream.read(4*1024*1024+1)
             def work():
                 try:
                     value=decode_image(raw)

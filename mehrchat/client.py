@@ -25,6 +25,23 @@ from .wire import connect
 from .contact_invite import normalize, check_address
 from .media import validate_preview, validate_reply, attachment_digest
 
+MAX_HISTORY_BYTES = 64 * 1024 * 1024
+
+
+def validate_payload(payload):
+    common = {'id', 'chat', 'author', 'created', 'expires', 'kind'}
+    extras = {'message': {'text', 'reply'}, 'group': {'text', 'reply'},
+              'file': {'text', 'reply', 'filename', 'file', 'file_sha256', 'preview'},
+              'group_update': {'text'}, 'receipt': {'target'}, 'delete': {'target'}}
+    if (not isinstance(payload, dict) or not isinstance(payload.get('kind'), str)
+            or payload['kind'] not in extras or not common <= set(payload)
+            or set(payload) - common - extras[payload['kind']]):
+        raise ValueError('Invalid message fields')
+    if not isinstance(payload.get('text', ''), str) or len(payload.get('text', '')) > 16000:
+        raise ValueError('Invalid message text')
+    if type(payload['created']) is not int or type(payload['expires']) is not int:
+        raise ValueError('Invalid message timestamps')
+
 
 def safe_filename(name):
     reserved = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$"} | {
@@ -133,6 +150,11 @@ class Engine:
     def notify(self):
         if self.changed:
             self.changed()
+
+    def history_room(self, payload):
+        total = sum(len(pack(m)) for messages in self.d['messages'].values() for m in messages)
+        if total + len(pack(payload)) + 128 > MAX_HISTORY_BYTES:
+            raise ValueError('Encrypted history quota exceeded; export or delete old messages')
 
     def add_contact(self, text, expected_fingerprint):
         card = json.loads(text)
@@ -262,6 +284,7 @@ class Engine:
                 )
             if payload["kind"] not in ("message", "file", "group"):
                 raise ValueError("Invalid kind")
+            self.history_room(payload)
             for member in members:
                 if member != self.me:
                     self.secure.queue(
@@ -340,6 +363,7 @@ class Engine:
                 self.d["seen"][eid] = item["body"]["expires"]
                 self.retry_quarantine()
                 return
+            validate_payload(payload)
             if (
                 payload["author"] != sender
                 or payload["kind"] != item["body"]["kind"]
@@ -418,6 +442,7 @@ class Engine:
                 deleted = bool(actors) and (not group or sender in actors)
                 messages = self.d["messages"].setdefault(chat, [])
                 if not deleted and not any(m["id"] == payload["id"] for m in messages):
+                    self.history_room(payload)
                     messages.append(dict(payload, state="دریافت شد"))
             else:
                 raise ValueError("Invalid message kind")
@@ -466,6 +491,9 @@ class Engine:
     def prune(self):
         with self.transaction():
             now = time.time()
+            from .ratchet import prune_state
+            for session in self.d['sessions'].values():
+                session['state'] = prune_state(session['state'], now)
             self.d["pending_retractions"] = {
                 k: v
                 for k, v in self.d["pending_retractions"].items()

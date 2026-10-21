@@ -57,7 +57,7 @@ Open **Menu → My QR and ID**. Every existing or new identity has a stable **12
 
 To add someone, open **+ → New contact** and either:
 
-- Enter their 12-digit ID and 5-letter share code, then check and confirm the displayed name. Persian digits, spaces in the ID and lowercase share letters are accepted. Both users must have registered with a common **0.6.0 relay** at least once. The recipient can be offline after registration.
+- Enter their 12-digit ID and 5-letter share code, then check and confirm the displayed name. Persian digits, spaces in the ID and lowercase share letters are accepted. Both users must have registered with a common **0.7.1 relay** at least once. The recipient can be offline after registration.
 - Scan their QR with the camera, open an existing QR image, or paste their contact link. The signed public identity card is checked and the form fills automatically. Confirm before adding. QR exchange works without a directory lookup or internet connection; delivering messages still requires a reachable relay.
 
 Camera access is requested only when scanning. Images and camera frames are processed locally. Close the scanner to release the camera; if the camera is absent or permission is denied, use a QR image or the manual ID/code. Never enter a vault/account password in this form.
@@ -88,7 +88,7 @@ Download `MehrChat-0.7.0-Server-Source.tar.gz` from the release and verify its c
 
 ```sh
 tar -xzf MehrChat-0.7.0-Server-Source.tar.gz
-cd MehrChat-0.6.0
+cd MehrChat-0.7.1
 sudo bash deploy/install-ubuntu.sh
 ```
 
@@ -270,3 +270,10 @@ Use `dist\MehrRelay.exe` on Windows. Provide clients with the matching public CA
 For development, use Python 3.12 and `python -m pip install -r requirements.txt`. Run `python -m unittest discover -s tests -v`. Native packaging uses `python scripts/build.py client` and `python scripts/build.py server` with PyInstaller installed; Windows builds need the graphics dependencies specified in the workflow. Android builds use `buildozer.spec` and the pinned local recipes. Do not substitute untested cryptography/native versions into an existing Android cache.
 
 CI validates protocol/security tests, authenticated TLS connection gating, compiled client/relay execution, installation/uninstallation, server identity retention, Android ABI/16-KiB alignment/backup/debug settings and Android emulator GUI plus real TLS/Noise/E2EE network exchange. UI galleries are captured from temporary test accounts in the compiled Windows client and Android emulator, not generated mockups. Physical Android devices, real public ACME provisioning and operator-specific network reachability need deployment trials.
+
+
+### Security maintenance in 0.7.1
+
+Upgrade relays and clients together. Imported QR images are decoded in the isolated media worker, not inside the unlocked client process. Signed identity cards, requests, group descriptors and decrypted messages use strict schemas. Independent directory/tombstone limits, shared receive-memory reservations and a whole-record deadline reduce resource-exhaustion paths. Username searches no longer disclose presence or public cards; use the complete contact address or QR. Five-letter contact codes are public matching codes, never account passwords.
+
+Skipped message keys expire after 24 hours; very late out-of-order messages may therefore be rejected. Account message history is limited to 64 MiB; export or delete old messages when full. Relays accept at most 16 connections per source IP; deployments behind large shared NATs should assess this policy. See SECURITY.md for quotas, legacy-state migration and the remaining metadata/audit limitations. These changes do not claim absolute security or anonymity.

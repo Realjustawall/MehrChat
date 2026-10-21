@@ -77,7 +77,7 @@ if kind == 'client':
     PyInstaller.__main__.run(['--noconfirm','--clean','--onefile','--name','MehrMedia',
         '--exclude-module','kivy','--exclude-module','cv2','--exclude-module','numpy',
         '--exclude-module','matplotlib','--exclude-module','tkinter',
-        '--collect-all','imageio_ffmpeg','--add-binary',codec+os.pathsep+'imageio_ffmpeg/binaries','--hidden-import','PIL.JpegImagePlugin',
+        '--collect-all','zxingcpp','--collect-all','imageio_ffmpeg','--add-binary',codec+os.pathsep+'imageio_ffmpeg/binaries','--hidden-import','PIL.JpegImagePlugin',
         '--hidden-import','PIL.PngImagePlugin','--hidden-import','PIL.GifImagePlugin',
         '--hidden-import','PIL.WebPImagePlugin','--hidden-import','PIL.TiffImagePlugin',
         'media_worker_entry.py'])

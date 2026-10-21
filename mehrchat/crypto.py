@@ -61,7 +61,19 @@ def public_card(identity):
 
 
 def check_card(card):
+    # Cards are signed public identities, not arbitrary signed storage records.
+    if not isinstance(card, dict) or set(card) != {"body", "sig"}:
+        raise ValueError("Invalid identity card fields")
+    if not isinstance(card["sig"], str) or len(card["sig"]) != 88:
+        raise ValueError("Invalid identity signature")
     b = card["body"]
+    if (not isinstance(b, dict)
+            or set(b) != {"v", "sign", "box", "username", "name", "id"}
+            or type(b["v"]) is not int
+            or any(not isinstance(b[k], str) for k in ("sign", "box", "username", "name", "id"))
+            or len(b["sign"]) != 44 or len(b["box"]) != 44
+            or len(b["id"]) != 64 or len(b["username"]) > 32 or len(b["name"]) > 80):
+        raise ValueError("Invalid identity card fields")
     if b["v"] != 1 or b["id"] != uid(b["sign"], b["box"]):
         raise ValueError("Invalid identity")
     if len(dec(b["sign"])) != 32 or len(dec(b["box"])) != 32:
@@ -83,6 +95,10 @@ def signed(identity, obj):
 
 
 def verify(card, obj):
+    if (not isinstance(obj, dict) or set(obj) != {'body', 'sig'}
+            or not isinstance(obj['body'], dict) or not isinstance(obj['sig'], str)
+            or len(obj['sig']) != 88):
+        raise ValueError('Invalid signed object fields')
     b = check_card(card)
     VerifyKey(dec(b["sign"])).verify(pack(obj["body"]), dec(obj["sig"]))
     return obj["body"]

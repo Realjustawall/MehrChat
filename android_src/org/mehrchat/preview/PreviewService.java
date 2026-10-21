@@ -38,6 +38,7 @@ public final class PreviewService extends Service {
                         value=new JSONObject();value.put("files_denied",denied);value.put("uid_isolated",android.os.Process.myUid()!=getApplicationInfo().uid);
                     }
                     else if(kind.equals("image")) value=image(raw);
+                    else if(kind.equals("qr")) value=qr(raw);
                     else if(kind.equals("video")||kind.equals("audio"))value=av(raw,kind);
                     else throw new IOException();
                     result=value.toString();if(result.length()>272048)result="";
@@ -81,6 +82,24 @@ public final class PreviewService extends Service {
             if(!matrix.isIdentity()){Bitmap corrected=Bitmap.createBitmap(bitmap,0,0,bitmap.getWidth(),bitmap.getHeight(),matrix,true);if(corrected!=bitmap)bitmap.recycle();bitmap=corrected;}
         }catch(IOException ignored){}
         return raster(bitmap,"image",0);
+    }
+    private static JSONObject qr(byte[] raw)throws Exception {
+        BitmapFactory.Options options=new BitmapFactory.Options();options.inJustDecodeBounds=true;
+        BitmapFactory.decodeByteArray(raw,0,raw.length,options);
+        if(options.outWidth<=0||options.outHeight<=0||(long)options.outWidth*options.outHeight>4000000||Math.max(options.outWidth,options.outHeight)>4096)throw new IOException();
+        if(!("image/jpeg".equals(options.outMimeType)||"image/png".equals(options.outMimeType)||"image/webp".equals(options.outMimeType)))throw new IOException();
+        options.inJustDecodeBounds=false;options.inPreferredConfig=Bitmap.Config.ARGB_8888;
+        Bitmap bitmap=BitmapFactory.decodeByteArray(raw,0,raw.length,options);
+        if(bitmap==null)throw new IOException();
+        try {
+            int w=bitmap.getWidth(),h=bitmap.getHeight();int[] pixels=new int[w*h];
+            bitmap.getPixels(pixels,0,w,0,0,w,h);
+            com.google.zxing.RGBLuminanceSource source=new com.google.zxing.RGBLuminanceSource(w,h,pixels);
+            com.google.zxing.BinaryBitmap image=new com.google.zxing.BinaryBitmap(new com.google.zxing.common.HybridBinarizer(source));
+            String text=new com.google.zxing.qrcode.QRCodeReader().decode(image).getText();
+            if(text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length>8192)throw new IOException();
+            JSONObject value=new JSONObject();value.put("qr",text);return value;
+        }finally{bitmap.recycle();}
     }
     private static final class Source extends MediaDataSource {
         private final byte[] raw;Source(byte[] value){raw=value;}

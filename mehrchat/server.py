@@ -12,7 +12,7 @@ from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 from .crypto import create_identity, public_card, check_card, verify, pack
-from .wire import accept
+from .wire import accept, ReceiveBudget
 from .contact_invite import address, normalize
 
 # A 4 MiB attachment is base64 inside encrypted JSON and the ciphertext is
@@ -20,6 +20,11 @@ from .contact_invite import address, normalize
 MAX_CIPHER = 12 * 1024 * 1024
 MAX_CONTROL_CIPHER = 4 * 1024 * 1024
 CLOCK_SKEW = 300
+MAX_USERS = 10000
+MAX_DIRECTORY_BYTES = 16 * 1024 * 1024
+MAX_SEEN = 100000
+MAX_RETRACTIONS = 100000
+MAX_CONNECTIONS_PER_IP = 16
 
 
 class Relay:
@@ -68,14 +73,30 @@ class Relay:
         self.active = set()
         self.connections = 0
         self.events = {}
+        self.receive_budget = ReceiveBudget()
+        self.ip_connections = {}
+        self.registration_tokens = 60.0
+        self.registration_last = time.monotonic()
 
     def register(self, card):
         b = check_card(card)
+        raw = json.dumps(card)
+        previous = self.db.execute('SELECT length(CAST(public_card AS BLOB)) FROM users WHERE id=?', (b['id'],)).fetchone()
+        count, size = self.db.execute('SELECT count(*),coalesce(sum(length(CAST(public_card AS BLOB))),0) FROM users').fetchone()
+        if (previous is None and count >= MAX_USERS) or size - ((previous[0] or 0) if previous else 0) + len(raw.encode()) > MAX_DIRECTORY_BYTES:
+            raise ValueError("Public directory quota exceeded")
+        if previous is None:
+            now = time.monotonic()
+            self.registration_tokens = min(60.0, self.registration_tokens + (now - self.registration_last) / 6)
+            self.registration_last = now
+            if self.registration_tokens < 1:
+                raise ValueError("Registration rate limited")
+            self.registration_tokens -= 1
         try:
             with self.db:
                 self.db.execute(
                     "INSERT INTO users(id,username,share_address,public_card) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET username=excluded.username,share_address=excluded.share_address,public_card=excluded.public_card",
-                    (b["id"], b["username"].lower(), "".join(address(card)), json.dumps(card)),
+                    (b["id"], b["username"].lower(), "".join(address(card)), raw),
                 )
         except sqlite3.IntegrityError as exc:
             raise ValueError("این نام کاربری قبلاً ثبت شده است") from exc
@@ -118,6 +139,11 @@ class Relay:
                 raise ValueError("Invalid envelope")
             verified.append(cap)
         with self.db:
+            # Bound retained tombstones independently of the ciphertext queue.
+            additional = sum(not self.db.execute('SELECT 1 FROM retractions WHERE id=? AND sender=? AND recipient=?',
+                             (cap['id'], cap['sender'], cap['to'])).fetchone() for cap in verified)
+            if self.db.execute('SELECT count(*) FROM retractions').fetchone()[0] + additional > MAX_RETRACTIONS:
+                raise ValueError("Retraction quota exceeded")
             for cap in verified:
                 self.db.execute(
                     "DELETE FROM queue WHERE id=? AND sender=? AND recipient=?",
@@ -220,6 +246,8 @@ class Relay:
             or overall + len(raw) > 1024 * 1024 * 1024
         ):
             return {"ok": False, "error": "صندوق پیام پر است"}
+        if self.db.execute('SELECT count(*) FROM seen').fetchone()[0] >= MAX_SEEN:
+            return {"ok": False, "error": "Relay receipt quota exceeded"}
         with self.db:
             self.db.execute(
                 "INSERT INTO queue VALUES(?,?,?,?,?)",
@@ -233,14 +261,17 @@ class Relay:
         return {"ok": True}
 
     async def handle(self, reader, writer):
-        if self.connections >= 64:
+        peer = writer.get_extra_info('peername')
+        ip = peer[0] if peer else 'unknown'
+        if self.connections >= 64 or self.ip_connections.get(ip, 0) >= MAX_CONNECTIONS_PER_IP:
             writer.close()
             return
         self.connections += 1
+        self.ip_connections[ip] = self.ip_connections.get(ip, 0) + 1
         user = None
         try:
             channel, card = await asyncio.wait_for(
-                accept(reader, writer, self.identity, self.register), 15
+                accept(reader, writer, self.identity, self.register, self.receive_budget), 15
             )
             if card is None:  # Authenticated pre-login probe; never register an account.
                 return
@@ -254,6 +285,12 @@ class Relay:
             tokens, last = 120.0, time.monotonic()
             while True:
                 request = await channel.recv()
+                schemas = {'put': {'op', 'item'}, 'retract': {'op', 'item'},
+                           'lookup_code': {'op', 'number', 'code'}, 'lookup': {'op', 'username'},
+                           'fetch': {'op'}, 'ack': {'op', 'id'}, 'settings': {'op'}}
+                if (not isinstance(request, dict) or not isinstance(request.get('op'), str)
+                        or set(request) != schemas.get(request['op'])):
+                    raise ValueError('Invalid request fields')
                 now = time.monotonic()
                 tokens = min(120.0, tokens + (now - last) * 20)
                 last = now
@@ -278,8 +315,9 @@ class Relay:
                     result = {
                         "ok": True,
                         "id": row[0] if row else None,
-                        "card": self.live_cards.get(row[0]) if row else None,
-                        "online": bool(row and row[0] in self.live_cards),
+                        # A public username reservation is not a presence oracle.
+                        # Full cards require the key-bound contact address.
+                        "card": None,
                     }
                 elif op == "fetch":
                     row = self.db.execute(
@@ -314,6 +352,9 @@ class Relay:
             pass
         finally:
             self.connections -= 1
+            self.ip_connections[ip] -= 1
+            if not self.ip_connections[ip]:
+                del self.ip_connections[ip]
             if user:
                 self.active.discard(user)
                 self.live_cards.pop(user, None)
