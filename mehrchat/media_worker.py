@@ -55,6 +55,23 @@ def decode_image(raw):
         image.seek(0);image.load()
         return encode_rgb('image',ImageOps.exif_transpose(image))
 
+
+def decode_qr(raw):
+    from PIL import Image
+    import zxingcpp
+    Image.MAX_IMAGE_PIXELS = 4_000_000
+    Image.init()
+    warnings.simplefilter('error', Image.DecompressionBombWarning)
+    if sys.platform.startswith('linux'):
+        linux_restrict()
+    with Image.open(io.BytesIO(raw), formats=['JPEG', 'PNG', 'WEBP']) as image:
+        if image.width * image.height > 4_000_000 or max(image.size) > 4096:
+            raise ValueError('QR image dimensions exceed limits')
+        result = zxingcpp.read_barcode(image, formats=zxingcpp.BarcodeFormat.QRCode)
+    if not result or len(result.text.encode()) > 8192:
+        raise ValueError('QR output limit')
+    return {'qr': result.text}
+
 @contextmanager
 def media_directory():
     if os.name!='nt':
@@ -124,7 +141,12 @@ def _decode_av(kind,input_path):
 def run():
     # On Windows the caller puts this process in a no-capability AppContainer
     # and a memory/CPU-limited job before supplying input. No insecure fallback.
-    raw=sys.stdin.buffer.read(LIMIT+1)
+    raw=sys.stdin.buffer.read(LIMIT+33)
+    if raw.startswith(b'MEHRCHAT_QR_V1\0'):
+        raw = raw.split(b'\0', 1)[1]
+        if not raw or len(raw)>LIMIT:return 2
+        sys.stdout.write(json.dumps(decode_qr(raw)))
+        return 0
     if not raw or len(raw)>LIMIT:return 2
     if raw.startswith(b'MEHRCHAT_SANDBOX_PROBE\0'):
         import socket

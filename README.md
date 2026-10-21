@@ -2,7 +2,7 @@
 
 MehrChat is a self-hosted native messenger for Windows, Linux and Android. It provides private conversations, groups, encrypted attachments, delivery receipts, message expiry and encrypted identity backups. The interface supports Persian and English, selectable before login, with light/dark themes and the bundled Vazirmatn font. These installation instructions are in English.
 
-**Version 0.7.0.** Download application packages from [Releases](https://github.com/Realjustawall/MehrChat/releases). Builds and test reports are available in [GitHub Actions](https://github.com/Realjustawall/MehrChat/actions). Read the [security model](SECURITY.md) before operating a server. No independent security audit is claimed.
+**Version 0.7.1.** Download application packages from [Releases](https://github.com/Realjustawall/MehrChat/releases). Builds and test reports are available in [GitHub Actions](https://github.com/Realjustawall/MehrChat/actions). Read the [security model](SECURITY.md) before operating a server. No independent security audit is claimed.
 
 ## Choose your installation
 
@@ -10,9 +10,9 @@ MehrChat is a self-hosted native messenger for Windows, Linux and Android. It pr
 | --- | --- | --- |
 | `MehrChat-Windows-x64.zip` | Windows desktop client and Windows relay | Extract the complete archive; use the instructions below. |
 | `MehrChat-Ubuntu-x64.tar.gz` | Linux desktop client and compiled relay | Extract the complete archive; use the desktop or legacy relay instructions below. |
-| `MehrChat-0.7.0-Android-arm64-v8a.apk` | Signed Android release for modern 64-bit ARM phones | Install the APK and configure your server. |
-| `MehrChat-0.7.0-Server-Source.tar.gz` | Interactive Ubuntu TLS installer and server source | Recommended server deployment. |
-| `MehrChat-0.7.0-UI-Screenshots.zip` | Actual Windows and Android emulator UI captures | Extract to view connection, login, conversations and settings. |
+| `MehrChat-0.7.1-Android-arm64-v8a.apk` | Signed Android release for modern 64-bit ARM phones | Install the APK and configure your server. |
+| `MehrChat-0.7.1-Server-Source.tar.gz` | Interactive Ubuntu TLS installer and server source | Recommended server deployment. |
+| `MehrChat-0.7.1-UI-Screenshots.zip` | Actual Windows and Android emulator UI captures | Extract to view connection, login, conversations and settings. |
 | `SHA256SUMS.txt` | Download checksums | Check your downloaded files before installation. |
 
 Windows executables are not Authenticode-signed. Android test/debug APKs and unsigned APKs in Actions are development artifacts; use the signed release APK for normal installation. The Android emulator test runs on x86_64; the phone release is arm64-v8a. Physical-device behavior still needs device-specific trials.
@@ -57,7 +57,7 @@ Open **Menu → My QR and ID**. Every existing or new identity has a stable **12
 
 To add someone, open **+ → New contact** and either:
 
-- Enter their 12-digit ID and 5-letter share code, then check and confirm the displayed name. Persian digits, spaces in the ID and lowercase share letters are accepted. Both users must have registered with a common **0.6.0 relay** at least once. The recipient can be offline after registration.
+- Enter their 12-digit ID and 5-letter share code, then check and confirm the displayed name. Persian digits, spaces in the ID and lowercase share letters are accepted. Both users must have registered with a common **0.7.1 relay** at least once. The recipient can be offline after registration.
 - Scan their QR with the camera, open an existing QR image, or paste their contact link. The signed public identity card is checked and the form fills automatically. Confirm before adding. QR exchange works without a directory lookup or internet connection; delivering messages still requires a reachable relay.
 
 Camera access is requested only when scanning. Images and camera frames are processed locally. Close the scanner to release the camera; if the camera is absent or permission is denied, use a QR image or the manual ID/code. Never enter a vault/account password in this form.
@@ -84,11 +84,11 @@ Emoji graphics are **Twemoji 17.0.3**, © Twitter and contributors, **CC-BY-4.0*
 
 ### Download and run
 
-Download `MehrChat-0.7.0-Server-Source.tar.gz` from the release and verify its checksum. Then:
+Download `MehrChat-0.7.1-Server-Source.tar.gz` from the release and verify its checksum. Then:
 
 ```sh
-tar -xzf MehrChat-0.7.0-Server-Source.tar.gz
-cd MehrChat-0.6.0
+tar -xzf MehrChat-0.7.1-Server-Source.tar.gz
+cd MehrChat-0.7.1
 sudo bash deploy/install-ubuntu.sh
 ```
 
@@ -99,7 +99,7 @@ sudo apt-get update
 sudo apt-get install -y git
 git clone https://github.com/Realjustawall/MehrChat.git
 cd MehrChat
-git checkout v0.6.0
+git checkout v0.7.1
 sudo bash deploy/install-ubuntu.sh
 ```
 
@@ -189,7 +189,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\uninstall-windows-c
 
 ## 3. Install the Android client
 
-Download `MehrChat-0.7.0-Android-arm64-v8a.apk` to a compatible Android phone (Android 8/API 26 or newer, 64-bit ARM). Open the APK and, if Android requests it, allow installation from the download source you chose. Verify the release checksum and signing certificate fingerprint against the published release information.
+Download `MehrChat-0.7.1-Android-arm64-v8a.apk` to a compatible Android phone (Android 8/API 26 or newer, 64-bit ARM). Open the APK and, if Android requests it, allow installation from the download source you chose. Verify the release checksum and signing certificate fingerprint against the published release information.
 
 For an existing installation, install the new APK over it. Android updates require the **same signing certificate** and a compatible version code. A debug APK uses another key and may not update to the official APK. Export an encrypted backup first; uninstalling Android deletes the local app identity and keys. If an installation reports a signature conflict, do not uninstall until the backup has been exported and its password retained.
 
@@ -270,3 +270,10 @@ Use `dist\MehrRelay.exe` on Windows. Provide clients with the matching public CA
 For development, use Python 3.12 and `python -m pip install -r requirements.txt`. Run `python -m unittest discover -s tests -v`. Native packaging uses `python scripts/build.py client` and `python scripts/build.py server` with PyInstaller installed; Windows builds need the graphics dependencies specified in the workflow. Android builds use `buildozer.spec` and the pinned local recipes. Do not substitute untested cryptography/native versions into an existing Android cache.
 
 CI validates protocol/security tests, authenticated TLS connection gating, compiled client/relay execution, installation/uninstallation, server identity retention, Android ABI/16-KiB alignment/backup/debug settings and Android emulator GUI plus real TLS/Noise/E2EE network exchange. UI galleries are captured from temporary test accounts in the compiled Windows client and Android emulator, not generated mockups. Physical Android devices, real public ACME provisioning and operator-specific network reachability need deployment trials.
+
+
+### Security maintenance in 0.7.1
+
+Upgrade relays and clients together. Imported QR images are decoded in the isolated media worker, not inside the unlocked client process. Signed identity cards, requests, group descriptors and decrypted messages use strict schemas. Independent directory/tombstone limits, shared receive-memory reservations and a whole-record deadline reduce resource-exhaustion paths. Username searches no longer disclose presence or public cards; use the complete contact address or QR. Five-letter contact codes are public matching codes, never account passwords.
+
+Skipped message keys expire after 24 hours; very late out-of-order messages may therefore be rejected. Account message history is limited to 64 MiB; export or delete old messages when full. Relays accept at most 16 connections per source IP; deployments behind large shared NATs should assess this policy. See SECURITY.md for quotas, legacy-state migration and the remaining metadata/audit limitations. These changes do not claim absolute security or anonymity.

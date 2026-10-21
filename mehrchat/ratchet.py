@@ -1,6 +1,6 @@
 """Double Ratchet library integration; independent protocol audit still required."""
 
-import asyncio, hashlib
+import asyncio, hashlib, time
 from concurrent.futures import ThreadPoolExecutor
 from cryptography.hazmat.primitives.asymmetric.x25519 import (
     X25519PrivateKey,
@@ -70,6 +70,45 @@ OPTIONS = dict(
     aead=Cipher,
 )
 
+SKIPPED_KEY_TTL = 24 * 3600
+KEY_TIMES = '_mehr_skipped_key_times'
+
+
+def key_id(key):
+    return str(key['ratchet_pub']) + ':' + str(key['index'])
+
+
+def prune_state(state, now=None):
+    """Persist first-seen timestamps; never renew a retained key's lifetime.
+
+    Existing 0.7 states receive a single migration grace period on first use.
+    Expired out-of-order messages cannot subsequently be decrypted.
+    """
+    now = time.time() if now is None else now
+    result = dict(state)
+    previous = state.get(KEY_TIMES, {})
+    retained, times = [], {}
+    for key in state.get('skipped_message_keys', []):
+        kid = key_id(key)
+        created = previous.get(kid, now)
+        if type(created) not in (int, float) or not 0 <= now - created < SKIPPED_KEY_TTL:
+            continue
+        retained.append(key)
+        times[kid] = created
+    result['skipped_message_keys'] = retained
+    result[KEY_TIMES] = times
+    return result
+
+
+def library_state(state):
+    return {k: v for k, v in state.items() if k != KEY_TIMES}
+
+
+def stamp_state(state, previous=None):
+    result = dict(state)
+    result[KEY_TIMES] = (previous or {}).get(KEY_TIMES, {})
+    return prune_state(result)
+
 
 def encode_header(h):
     return {
@@ -133,7 +172,7 @@ def initial_send(secret, public, plaintext, ad):
             message=plaintext,
             associated_data=ad
         )
-        return state.json, {
+        return stamp_state(state.json), {
             "ratchet": encode_header(msg.header),
             "ciphertext": enc(msg.ciphertext),
         }
@@ -150,16 +189,17 @@ def initial_receive(secret, private, p, ad):
             message=decode_message(p),
             associated_data=ad
         )
-        return state.json, plain
+        return stamp_state(state.json), plain
 
     return run(operation)
 
 
 def encrypt(state, plain, ad):
     async def operation():
-        current = Ratchet.from_json(state, **OPTIONS)
+        pruned = prune_state(state)
+        current = Ratchet.from_json(library_state(pruned), **OPTIONS)
         msg = await current.encrypt_message(plain, ad)
-        return current.json, {
+        return stamp_state(current.json, pruned), {
             "ratchet": encode_header(msg.header),
             "ciphertext": enc(msg.ciphertext),
         }
@@ -169,8 +209,9 @@ def encrypt(state, plain, ad):
 
 def decrypt(state, p, ad):
     async def operation():
-        current = Ratchet.from_json(state, **OPTIONS)
+        pruned = prune_state(state)
+        current = Ratchet.from_json(library_state(pruned), **OPTIONS)
         plain = await current.decrypt_message(decode_message(p), ad)
-        return current.json, plain
+        return stamp_state(current.json, pruned), plain
 
     return run(operation)

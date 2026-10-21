@@ -30,7 +30,11 @@ class Groups:
         return descriptor
 
     def validate(self, descriptor, sender, allow_removed=False):
+        if not isinstance(descriptor, dict):
+            raise ValueError('Invalid chat descriptor')
         if "private" in descriptor:
+            if set(descriptor) != {'private'}:
+                raise ValueError('Invalid private chat fields')
             members = descriptor["private"]
             if (
                 len(members) != 2
@@ -45,8 +49,14 @@ class Groups:
                 check_card(self.e.peer_card(p))
             return hashlib.sha256(pack(sorted(members))).hexdigest(), members, False
         body = descriptor["body"]
+        if set(descriptor) not in ({'body', 'sig'}, {'body', 'chain'}):
+            raise ValueError('Invalid group descriptor fields')
         owner = body["owner"]
         if "chain" not in descriptor:
+            # Legacy descriptors predate epoch chains. Bound their entire
+            # representation before retaining them in history/group state.
+            if len(pack(descriptor)) > 16384:
+                raise ValueError('Legacy group descriptor too large')
             verify(self.e.peer_card(owner), descriptor)
             for p in body["members"]:
                 check_card(self.e.peer_card(p))
@@ -67,6 +77,8 @@ class Groups:
             owner_card = self.e.peer_card(owner)
             for i, entry in enumerate(chain):
                 b = verify(owner_card, entry)
+                if set(entry) != {'body', 'sig'} or set(b) != {'v', 'id', 'epoch', 'owner', 'name', 'members', 'cards', 'previous'}:
+                    raise ValueError('Invalid group epoch fields')
                 members = b["members"]
                 expected = hashlib.sha256(pack(chain[i - 1])).hexdigest() if i else None
                 if (

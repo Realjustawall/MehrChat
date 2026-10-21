@@ -58,15 +58,25 @@ def make_preview(raw,strict=False):
     if sys.platform=='android' or 'ANDROID_ARGUMENT' in os.environ:
         from .android_preview import create_preview
         return validate_preview(create_preview(raw,kind))
+    try:
+        return validate_preview(run_isolated_decoder(raw))
+    except (OSError,ValueError,subprocess.SubprocessError):
+        if strict:raise
+        return None
+
+
+def run_isolated_decoder(raw):
+    """Shared media/QR worker boundary. Never retry in the caller process."""
+    if not raw or len(raw)>MAX_FILE+32:
+        raise ValueError('Decoder input limit')
     worker=Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent.parent))/'media-bin'/('MehrMedia.exe' if os.name=='nt' else 'MehrMedia')
     if worker.is_file():command=[str(worker)]
     elif not getattr(sys,'frozen',False):command=[sys.executable,str(Path(__file__).resolve().parent.parent/'media_worker_entry.py')]
     else:
-        if strict:raise OSError('Packaged media worker is missing')
-        return None
+        raise OSError('Packaged media worker is missing')
     try:
         if os.name=='nt':
-            if not worker.is_file():return None  # fail closed: source Python has no AppContainer ACL
+            if not worker.is_file():raise OSError('Packaged AppContainer worker is missing')
             from .windows_preview import run_isolated
             output=run_isolated(worker,raw,timeout=15)
         else:
@@ -88,11 +98,10 @@ def make_preview(raw,strict=False):
                 if process.wait(timeout=15):raise ValueError('Preview worker rejected media')
             finally:
                 timer.cancel();terminate();process.wait(timeout=2);process.stdout.close();writer.join(1)
-        if len(output)>MAX_ENCODED+2048:return None
-        return validate_preview(json.loads(output))
+        if len(output)>MAX_ENCODED+2048:raise ValueError('Decoder output limit')
+        return json.loads(output)
     except (OSError,ValueError,subprocess.SubprocessError):
-        if strict:raise
-        return None
+        raise
 
 def attachment_digest(raw):return hashlib.sha256(raw).hexdigest()
 

@@ -32,6 +32,11 @@ with tempfile.TemporaryDirectory() as directory,socket.socket() as listener:
     image=io.BytesIO();Image.new('RGB',(500,300),'green').save(image,format='JPEG')
     preview=validate_preview(json.loads(run(image.getvalue())))
     assert preview['kind']=='image' and len(preview_pixels(preview))<=256*256*3
+    from mehrchat.contact_invite import invite, qr_png
+    from mehrchat.crypto import create_identity, public_card
+    invitation=invite(public_card(create_identity('qrtest','QR test')))
+    decoded=json.loads(run(b'MEHRCHAT_QR_V1\0'+qr_png(invitation)))
+    assert decoded=={'qr':invitation},decoded
     # An image decompression bomb must be refused within the same sandbox.
     bomb=io.BytesIO();Image.new('1',(4000,4000)).save(bomb,format='PNG')
     try:run(bomb.getvalue())
@@ -51,5 +56,5 @@ with tempfile.TemporaryDirectory() as directory,socket.socket() as listener:
                         '-i','color=c=red:s=64x48:r=4','-t','1','-c:v','libx264','-threads','1',str(clip)],check=True)
         video=validate_preview(json.loads(run(clip.read_bytes())))
         assert video['kind']=='video' and len(preview_pixels(video))==256*256*3
-    print(json.dumps(dict(files_denied=True,network_denied=True,packaged_image_decoder=True,pixel_bomb_rejected=True)))
+    print(json.dumps(dict(files_denied=True,network_denied=True,packaged_image_decoder=True,packaged_qr_decoder=True,pixel_bomb_rejected=True)))
     print('PACKAGED_MEDIA_SANDBOX_PASS')

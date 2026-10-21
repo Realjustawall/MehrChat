@@ -303,10 +303,13 @@ def install(app, result_path):
                     def verify_media():
                         try:
                             from .media import make_preview,preview_pixels
-                            from .contact_invite import qr_png
+                            from .contact_invite import qr_png, invite, decode_image
                             preview=make_preview(qr_png('MehrChat sandbox fixture'),strict=True)
                             assert preview and preview['kind']=='image' and len(preview_pixels(preview))<=256*256*3
                             result['isolated_media_preview']=True
+                            invitation=invite(app.engine.card)
+                            assert decode_image(qr_png(invitation))==invitation
+                            result['isolated_qr_decode']=True
                             if platform=='android':
                                 from .android_preview import render
                                 canary=app.vault_path.parent/'ci-media-canary.txt'
