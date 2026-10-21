@@ -415,7 +415,7 @@ class MehrApp(App):
                 inputs[name] = widget
             transport = Spinner(text="TLS + Noise" if current['transport'] == 'tls' else 'Noise',
                                 values=("TLS + Noise", "Noise"), font_name=FONT,
-                                size_hint_y=None, height=dp(48), background_normal="", background_color=PANEL)
+                                size_hint_y=None, height=dp(48), background_normal="", background_color=BG, color=TEXT)
             panel.add_widget(transport)
             ca = field("گواهی CA اختصاصی (PEM)، برای گواهی عمومی خالی", multiline=True)
             ca.text = current.get("ca", "")
@@ -1093,7 +1093,7 @@ class MehrApp(App):
             top.add_widget(port)
             panel.add_widget(top)
             panel.add_widget(pin)
-            transport = Spinner(text=value.get("transport", "noise"), values=("tls", "noise"), size_hint_y=None, height=dp(44))
+            transport = Spinner(text=value.get("transport", "noise"), values=("tls", "noise"), size_hint_y=None, height=dp(44), font_name=FONT, background_normal="", background_color=BG, color=TEXT)
             ca = field("گواهی CA (PEM)", multiline=True)
             ca.text = value.get("ca", "")
             panel.add_widget(transport)
