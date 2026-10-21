@@ -145,26 +145,18 @@ def input_texture(value, size):
 
 
 def widget_pixels(widget):
-    """Read a widget's region from the real window composition, including parents."""
+    """Read the actual rendered window, retaining its projection and clip state."""
     from math import ceil, floor
     from kivy.core.window import Window
-    width,height=map(int,Window.size)
-    layers=sorted((Window.canvas.indexof(w.canvas),w.canvas) for w in Window.children
-                  if Window.canvas.indexof(w.canvas)>=0)
-    fbo=Fbo(size=(width,height),with_stencilbuffer=True)
-    with fbo:
-        ClearColor(*Window.clearcolor);ClearBuffers()
-    try:
-        for _,canvas in layers:
-            Window.canvas.remove(canvas);fbo.add(canvas)
-        fbo.draw()
-        pixels=fbo.texture.pixels
-        x,y=widget.to_window(0,0,relative=True)
-        left,bottom=max(0,floor(x)),max(0,floor(y))
-        right,top=min(width,ceil(x+widget.width)),min(height,ceil(y+widget.height))
-        assert right>left and top>bottom,'Widget is outside the rendered window'
-        return b''.join(pixels[(row*width+left)*4:(row*width+right)*4] for row in range(bottom,top))
-    finally:
-        for index,canvas in layers:
-            fbo.remove(canvas);Window.canvas.insert(index,canvas)
-        Window.canvas.ask_update()
+    from kivy.graphics.opengl import glReadPixels, GL_RGBA, GL_UNSIGNED_BYTE
+    # Reparenting canvases into an FBO loses the window render context on ANGLE.
+    # Draw to the real back buffer, then read before the SDL buffer swap.
+    Window.on_draw()
+    width, height = map(int, Window.size)
+    pixels = glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE)
+    x, y = widget.to_window(0, 0, relative=True)
+    left, bottom = max(0, floor(x)), max(0, floor(y))
+    right, top = min(width, ceil(x + widget.width)), min(height, ceil(y + widget.height))
+    assert right > left and top > bottom, 'Widget is outside the rendered window'
+    return b''.join(pixels[(row * width + left) * 4:(row * width + right) * 4]
+                    for row in range(bottom, top))
