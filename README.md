@@ -2,7 +2,7 @@
 
 MehrChat is a self-hosted native messenger for Windows, Linux and Android. It provides private conversations, groups, encrypted attachments, delivery receipts, message expiry and encrypted identity backups. The interface supports Persian and English, selectable before login, with light/dark themes and the bundled Vazirmatn font. These installation instructions are in English.
 
-**Version 0.7.0.** Download application packages from [Releases](https://github.com/Realjustawall/MehrChat/releases). Builds and test reports are available in [GitHub Actions](https://github.com/Realjustawall/MehrChat/actions). Read the [security model](SECURITY.md) before operating a server. No independent security audit is claimed.
+**Version 0.7.1.** Download application packages from [Releases](https://github.com/Realjustawall/MehrChat/releases). Builds and test reports are available in [GitHub Actions](https://github.com/Realjustawall/MehrChat/actions). Read the [security model](SECURITY.md) before operating a server. No independent security audit is claimed.
 
 ## Choose your installation
 
@@ -10,9 +10,9 @@ MehrChat is a self-hosted native messenger for Windows, Linux and Android. It pr
 | --- | --- | --- |
 | `MehrChat-Windows-x64.zip` | Windows desktop client and Windows relay | Extract the complete archive; use the instructions below. |
 | `MehrChat-Ubuntu-x64.tar.gz` | Linux desktop client and compiled relay | Extract the complete archive; use the desktop or legacy relay instructions below. |
-| `MehrChat-0.7.0-Android-arm64-v8a.apk` | Signed Android release for modern 64-bit ARM phones | Install the APK and configure your server. |
-| `MehrChat-0.7.0-Server-Source.tar.gz` | Interactive Ubuntu TLS installer and server source | Recommended server deployment. |
-| `MehrChat-0.7.0-UI-Screenshots.zip` | Actual Windows and Android emulator UI captures | Extract to view connection, login, conversations and settings. |
+| `MehrChat-0.7.1-Android-arm64-v8a.apk` | Signed Android release for modern 64-bit ARM phones | Install the APK and configure your server. |
+| `MehrChat-0.7.1-Server-Source.tar.gz` | Interactive Ubuntu TLS installer and server source | Recommended server deployment. |
+| `MehrChat-0.7.1-UI-Screenshots.zip` | Actual Windows and Android emulator UI captures | Extract to view connection, login, conversations and settings. |
 | `SHA256SUMS.txt` | Download checksums | Check your downloaded files before installation. |
 
 Windows executables are not Authenticode-signed. Android test/debug APKs and unsigned APKs in Actions are development artifacts; use the signed release APK for normal installation. The Android emulator test runs on x86_64; the phone release is arm64-v8a. Physical-device behavior still needs device-specific trials.
@@ -84,10 +84,10 @@ Emoji graphics are **Twemoji 17.0.3**, © Twitter and contributors, **CC-BY-4.0*
 
 ### Download and run
 
-Download `MehrChat-0.7.0-Server-Source.tar.gz` from the release and verify its checksum. Then:
+Download `MehrChat-0.7.1-Server-Source.tar.gz` from the release and verify its checksum. Then:
 
 ```sh
-tar -xzf MehrChat-0.7.0-Server-Source.tar.gz
+tar -xzf MehrChat-0.7.1-Server-Source.tar.gz
 cd MehrChat-0.7.1
 sudo bash deploy/install-ubuntu.sh
 ```
@@ -99,7 +99,7 @@ sudo apt-get update
 sudo apt-get install -y git
 git clone https://github.com/Realjustawall/MehrChat.git
 cd MehrChat
-git checkout v0.6.0
+git checkout v0.7.1
 sudo bash deploy/install-ubuntu.sh
 ```
 
@@ -189,7 +189,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\uninstall-windows-c
 
 ## 3. Install the Android client
 
-Download `MehrChat-0.7.0-Android-arm64-v8a.apk` to a compatible Android phone (Android 8/API 26 or newer, 64-bit ARM). Open the APK and, if Android requests it, allow installation from the download source you chose. Verify the release checksum and signing certificate fingerprint against the published release information.
+Download `MehrChat-0.7.1-Android-arm64-v8a.apk` to a compatible Android phone (Android 8/API 26 or newer, 64-bit ARM). Open the APK and, if Android requests it, allow installation from the download source you chose. Verify the release checksum and signing certificate fingerprint against the published release information.
 
 For an existing installation, install the new APK over it. Android updates require the **same signing certificate** and a compatible version code. A debug APK uses another key and may not update to the official APK. Export an encrypted backup first; uninstalling Android deletes the local app identity and keys. If an installation reports a signature conflict, do not uninstall until the backup has been exported and its password retained.
 

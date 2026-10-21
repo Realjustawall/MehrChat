@@ -1291,7 +1291,7 @@ class MehrApp(App):
         box.add_widget(label(self.engine.identity['name'], font_size=sp(22 * appearance.text_scale), size_hint_y=None, height=dp(36)))
         box.add_widget(label(' '.join(number[i:i+4] for i in range(0,12,4)), font_size=sp(27 * appearance.text_scale), size_hint_y=None, height=dp(42)))
         box.add_widget(label(secret, font_size=sp(23 * appearance.text_scale), size_hint_y=None, height=dp(36)))
-        box.add_widget(wrapped_label('مخاطب QR را اسکن کند یا شناسه و کد ۵ حرفی را وارد کند. این رمز، رمز ورود حساب شما نیست.', font_size=sp(13 * appearance.text_scale), size_hint_y=None, height=dp(70)))
+        box.add_widget(wrapped_label('مخاطب QR را اسکن کند یا شناسه و کد ۵ حرفی را وارد کند. این کد عمومی است و رمز ورود حساب نیست.', font_size=sp(13 * appearance.text_scale), size_hint_y=None, height=dp(70)))
         pop = self.dialog('QR و شناسه من', box)
         box.add_widget(button('کپی شناسه و کد', lambda: Clipboard.copy(number + ' ' + secret)))
         box.add_widget(button('کپی لینک مخاطب', lambda: Clipboard.copy(payload), background_color=BG))
