@@ -17,8 +17,6 @@ args = [
     "--hidden-import",
     "_cffi_backend",
     "--exclude-module",
-    "numpy",
-    "--exclude-module",
     "lxml",
     "--exclude-module",
     "matplotlib",
@@ -50,6 +48,10 @@ if kind == "client" and sys.platform == "win32":
 if sys.platform.startswith("linux"):
     args += ["--strip"]
 if kind == "server":
+    # Contact address logic is shared with the client; its optional QR helpers
+    # must not pull a window provider or camera stack into a headless relay.
+    for module in ('kivy', 'cv2', 'zxingcpp', 'numpy', 'PIL', 'qrcode'):
+        args += ['--exclude-module', module]
     args += [
         "--onefile",
         "--name",
@@ -68,4 +70,6 @@ else:
         "assets" + os.pathsep + "assets",
         "main.py",
     ]
+if kind == 'client':
+    args += ['--collect-all', 'zxingcpp', '--collect-all', 'cv2', '--collect-all', 'qrcode']
 PyInstaller.__main__.run(args)

@@ -10,3 +10,9 @@ cryptography 50.0.2: changelog, https://cryptography.io/en/latest/changelog/
 pydantic 2.14.0: Homepage, https://github.com/pydantic/pydantic
 pydantic_core 2.50.0: https://github.com/pydantic/pydantic
 six 1.17.0: https://github.com/benjaminp/six
+
+Telegram Web A icons (converted font): GPL-3.0, https://github.com/Ajaxy/telegram-tt
+Twemoji 16.0.1 graphics: CC-BY-4.0, https://github.com/jdecked/twemoji
+qrcode 8.2: BSD-3-Clause, https://github.com/lincolnloop/python-qrcode
+zxing-cpp 3.1.1 and ZXing Java core 3.5.3: Apache-2.0, https://github.com/zxing-cpp/zxing-cpp and https://github.com/zxing/zxing
+OpenCV Python headless 4.14.0.94: Apache-2.0 (third-party components have their own notices), https://github.com/opencv/opencv-python

@@ -40,6 +40,14 @@ jobs:
           else
             KIVY_GL_BACKEND=angle_sdl2 python scripts/connection_gui_smoke.py > reports/connection-gui-test.txt 2>&1
           fi
+      - name: Verify text bounds and compact/mobile layouts
+        shell: bash
+        run: |
+          if [ '${{ runner.os }}' = 'Linux' ]; then
+            xvfb-run -a python scripts/layout_gui_smoke.py > reports/layout-gui-test.txt 2>&1
+          else
+            KIVY_GL_BACKEND=angle_sdl2 python scripts/layout_gui_smoke.py > reports/layout-gui-test.txt 2>&1
+          fi
       - name: Build native relay
         shell: bash
         run: python scripts/build.py server > reports/build-relay.txt 2>&1
@@ -258,11 +266,11 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const tag = `v0.5.0-rc1-ci.${context.runNumber}`;
+            const tag = `v0.6.0-rc1-ci.${context.runNumber}`;
             const commit = context.payload.pull_request?.head.sha || context.sha;
             const release = await github.rest.repos.createRelease({
               ...context.repo, tag_name: tag, target_commitish: commit,
-              name: `MehrChat 0.5.0-rc1 — CI ${context.runNumber}`,
+              name: `MehrChat 0.6.0-rc1 — CI ${context.runNumber}`,
               draft: true, prerelease: true,
               body: `Native Windows/Linux and Android candidate.\n\nSource: ${commit}\nValidation: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\nRelease APKs are unsigned and require the owner's signing key. Debug APKs are for testing. This candidate has not received an independent security audit.`
             });

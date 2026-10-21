@@ -102,9 +102,12 @@ def main():
     domain = input('Optional domain (Enter to skip): ').strip().lower()
     if domain and not re.fullmatch(r'(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}', domain):
         sys.exit('Invalid domain.')
-    port = int(input('TLS relay port [8787]: ').strip() or '8787')
-    if not 1 <= port <= 65535 or port == 8788:
-        sys.exit('Invalid port (8788 is reserved for loopback administration).')
+    while True:
+        raw_port = input('TLS relay port [8787]: ').strip() or '8787'
+        if raw_port.isascii() and raw_port.isdigit() and 1 <= int(raw_port) <= 65535 and int(raw_port) != 8788:
+            port = int(raw_port)
+            break
+        print('Enter a port from 1 to 65535; 8788 is reserved for loopback administration.')
     DATA.mkdir(parents=True, exist_ok=True, mode=0o700)
     save_admin(DATA, admin, password)
     password = None
@@ -156,8 +159,32 @@ def main():
     own(profile_path)
     print(f'TLS + Noise enabled on TCP {port}. Open this port in your host/provider firewall.\nPublic connection profile: {profile_path}\nAdmin: http://127.0.0.1:8788 (use an SSH tunnel).')
     print('Only the public profile goes into client builds; private keys and admin credentials stay here.')
-    if yes('Build dedicated Windows and Android clients using your GitHub Actions account?'):
-        run('/opt/mehrchat/venv/bin/python', '/opt/mehrchat/scripts/request-client-build.py', str(profile_path))
+    build_clients(profile_path)
+
+
+def build_clients(profile_path):
+    command = ['/opt/mehrchat/venv/bin/python', '/opt/mehrchat/scripts/request-client-build.py',
+               str(profile_path), '--output', str(DATA / 'dedicated-clients')]
+    if yes('Build and download dedicated Windows and Android clients now?', True):
+        if not shutil.which('gh'):
+            print('GitHub CLI is missing. Install gh, authenticate, and run the command below.')
+        else:
+            authenticated = subprocess.run(['gh', 'auth', 'status'], stdout=subprocess.DEVNULL,
+                                           stderr=subprocess.DEVNULL).returncode == 0
+            if not authenticated:
+                print('GitHub Actions needs your account. Authenticate on this server using the displayed device code.')
+                authenticated = subprocess.run(['gh', 'auth', 'login', '--hostname', 'github.com',
+                                                 '--git-protocol', 'https', '--web']).returncode == 0
+            if authenticated:
+                result = subprocess.run(command)
+                if result.returncode == 0:
+                    print('Dedicated clients downloaded to ' + str(DATA / 'dedicated-clients'))
+                    return
+                print('Client build did not finish successfully. The verified relay remains running.')
+            else:
+                print('GitHub authentication was not completed. The verified relay remains running.')
+        import shlex
+        print('Resume client build with: ' + shlex.join(command))
 
 
 if __name__ == '__main__':

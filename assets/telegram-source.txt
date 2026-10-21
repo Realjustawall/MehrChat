@@ -1,0 +1,7 @@
+Telegram Web A (Ajaxy/telegram-tt)
+https://github.com/Ajaxy/telegram-tt
+Commit f67a40879a7d78c2683ec5a296cf55bc22417d56
+GPL-3.0
+Icons font converted from src/styles/icons.woff2; mappings from icons.scss.
+Native layouts adapted to Telegram Web visual conventions; no Telegram branding or service code.
+Chat wallpaper rasterized from src/assets/pattern.svg; recolored for native theme.

@@ -14,3 +14,10 @@ annotated-types==0.7.0
 
 # Explicit public TLS trust store, including Android runtimes without OS CA discovery.
 certifi==2026.10.19
+
+# Contact QR generation/decoding and desktop webcam input.
+qrcode==8.2
+zxing-cpp==3.1.1
+opencv-python-headless==4.14.0.94
+Pillow==13.0.0
+numpy==2.5.4

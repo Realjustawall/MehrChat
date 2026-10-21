@@ -22,6 +22,7 @@ from .crypto import (
     dec,
 )
 from .wire import connect
+from .contact_invite import normalize, check_address
 
 
 def safe_filename(name):
@@ -584,6 +585,18 @@ class Engine:
         with self.lock:
             self.lookup_requests.append(username)
 
+    def lookup_contact(self, number, code):
+        number, code = normalize(number, code)
+        key = number + ':' + code
+        with self.lock:
+            self.d['lookup_results'].pop(key, None)
+            request = (key, number, code)
+            if request not in self.lookup_requests:
+                if len(self.lookup_requests) >= 20:
+                    raise ValueError('لطفاً منتظر نتیجه جستجو بمانید')
+                self.lookup_requests.append(request)
+        return key
+
     def start(self):
         if self.running:
             return
@@ -714,10 +727,20 @@ class Engine:
                         else:
                             await asyncio.sleep(0.5)
                     if lookup:
-                        await channel.send({"op": "lookup", "username": lookup})
+                        if isinstance(lookup, tuple):
+                            key, number, code = lookup
+                            await channel.send({'op': 'lookup_code', 'number': number, 'code': code})
+                        else:
+                            key = lookup
+                            await channel.send({"op": "lookup", "username": lookup})
                         result = await channel.recv()
+                        if isinstance(lookup, tuple) and result.get('card'):
+                            try:
+                                check_address(result['card'], number, code)
+                            except Exception:
+                                result = {'ok': False, 'card': None}
                         with self.lock:
-                            self.d["lookup_results"][lookup] = result
+                            self.d["lookup_results"][key] = result
                             if (
                                 self.lookup_requests
                                 and self.lookup_requests[0] == lookup

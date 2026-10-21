@@ -119,6 +119,14 @@ def install(app, result_path):
         app.compose.text = TEXT
         app.send()
         assert any(m.get("text") == TEXT for m in app.engine.d["messages"][chat])
+        app.engine.send(chat, 'سلام! چطوری؟ 😊 امروز وقت داری درباره پروژه صحبت کنیم؟')
+        app.engine.send(chat, 'پیام طولانی برای بررسی اندازه حباب و شکستن درست متن فارسی، English و شناسه‌های بدون فاصله: ' + 'ABC123'*12 + ' 🎉 ❤️')
+        app.compose.text = 'سلام\n😊 ❤️\nEnglish'
+        for logical, texture in zip(app.compose._lines, app.compose._lines_labels):
+            if not logical.strip():
+                continue
+            rgba = texture.pixels
+            assert any(rgba[i+3] > 0 and min(rgba[i:i+3]) < 180 for i in range(0,len(rgba),4)), 'Multiline composer lost a visible text line'
         private_draft = "پیش‌نویس خصوصی"
         group_draft = "پیش‌نویس گروه"
         app.compose.text = private_draft
@@ -139,9 +147,23 @@ def install(app, result_path):
         assert app.compose.text == group_draft
         # Import/confirmation must also go through the same recipient-switch path.
         app.contact_dialog()
+        from .contact_invite import invite, address, decode_image, qr_png
+        app._contact_fill_invite(invite(peer))
+        assert app._contact_form['number'].text == address(peer)[0]
+        assert app._contact_form['secret'].text == address(peer)[1]
+        # Decode the actual QR pixels using the platform scanner, then fill and add.
+        encoded_qr = qr_png(invite(peer))
+        decoded = decode_image(encoded_qr)
+        if platform == 'android':
+            # Exercise the exact ZXing luminance decoder used by the camera.
+            from .contact_invite import decode_android_luminance
+            image=CoreImage(io.BytesIO(encoded_qr),ext='png').texture
+            rgba=image.pixels
+            gray=bytes(rgba[i] for i in range(0,len(rgba),4))
+            width,height=map(int,image.size)
+            assert decode_android_luminance(width,height,gray)==decoded
+        app._contact_fill_invite(decoded)
         widgets = list(app.open_popups[-1].content.walk())
-        next(w for w in widgets if isinstance(w, TextInput) and w.hint_text == "کارت هویت مخاطب").text = json.dumps(peer)
-        next(w for w in widgets if isinstance(w, TextInput) and w.hint_text == "اثر انگشت تأییدشده").text = peer["body"]["id"]
         next(w for w in widgets if isinstance(w, Button) and w.text == fa("افزودن")).dispatch("on_release")
         assert app.chat == chat and app.compose.text == private_draft
         app.select(group)
@@ -157,12 +179,22 @@ def install(app, result_path):
             ("10-add-contact", app.contact_dialog),
             ("11-edit-group", lambda: app.group_dialog(group)),
             ("12-chat-info", app.chat_info),
+            ("13-emoji-picker", app.emoji_picker),
         ]
         pending_capture = None
 
         def next_step(*_):
             nonlocal pending_capture
             if pending_capture:
+                if pending_capture == '03-private-chat':
+                    assert app.compose.text == private_draft
+                    for logical, rect in zip(app.compose._lines, app.compose._lines_rects):
+                        if logical.strip():
+                            assert max(rect.tex_coords[1::2])-min(rect.tex_coords[1::2]) > 0, 'Composer cropped a zero-height texture region'
+                    from .visual import widget_pixels
+                    pixels = widget_pixels(app.compose)
+                    assert any(pixels[i+3] and max(pixels[i:i+3])<180 for i in range(0,len(pixels),4)), 'No visible composed draft text'
+                    assert any(pixels[i+3] and min(pixels[i:i+3])>210 for i in range(0,len(pixels),4)), 'Composer render lost its background'
                 capture(pending_capture)
             for popup in list(app.open_popups):
                 popup.dismiss()
@@ -243,6 +275,10 @@ def install(app, result_path):
                     assert app.sidebar.width == 0
                     assert app.mainpane.right <= app.root.width + 1
                     result = dict(
+                        composed_draft_visible=True,
+                        multiline_emoji_composer=True,
+                        contact_qr_pixel_decode=True,
+                        contact_invite_autofill=True,
                         responsive_navigation=True,
                         account_creation=True,
                         compiled_double_ratchet=True,
