@@ -279,7 +279,10 @@ class MehrApp(App):
             on_touch_down=lambda *_: self.activity(),
             on_key_down=lambda *_: self.activity(),
         )
-        Window.bind(on_resize=self.resize_layout)
+        # SDL/ANGLE can dispatch on_resize before Window.size is updated.
+        # Coalesce the events and choose the pane mode on the next clock tick.
+        self._resize_trigger = Clock.create_trigger(self.resize_layout, 0)
+        Window.bind(on_resize=self._resize_trigger, size=self._resize_trigger)
         self.vault_path = self.data_path()
         self.deployment = None if getattr(self, "test_mode", False) else bundled_profile()
         self.connection_profile = self.deployment

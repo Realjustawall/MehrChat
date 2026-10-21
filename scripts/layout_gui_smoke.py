@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
 from kivy.clock import Clock
 from kivy.core.window import Window
+from kivy.metrics import dp
 from kivy.uix.label import Label
 from mehrchat.ui import MehrApp, PersianInput
 from mehrchat.visual import MessageText, widget_pixels
@@ -40,11 +41,14 @@ def resize(*_):
 
 def check(*_):
     from mehrchat.ui import fa
+    assert app.mobile == (Window.width < dp(720)), ('Stale pane mode after resize', Window.size)
     if app.mobile:app.select(app.chat)
     app.refresh()
     Clock.schedule_once(assert_messages,.4)
 
 def assert_messages(*_):
+    assert app.compose.width >= dp(64), ('Composer collapsed', Window.size, app.compose.pos, app.compose.size)
+    assert 0 <= app.compose.x < app.compose.right <= Window.width, ('Composer outside viewport', Window.size, app.compose.pos, app.compose.size)
     texts=[w for w in app.messagebox.walk() if isinstance(w,MessageText)]
     assert len(texts)==3
     for text in texts:
