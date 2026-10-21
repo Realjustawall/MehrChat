@@ -229,6 +229,17 @@ class Sessions:
         self.ensure(peer)
 
     def bootstrap(self, peer, p):
+        fields = {
+            'request': {'action', 'initiator', 'responder'},
+            'hello': {'action', 'sid', 'initiator', 'responder', 'generation', 'eph'},
+            'reply': {'action', 'hello', 'eph', 'ratchet'},
+            'generation_hint': {'action', 'generation', 'sid'},
+            'reset': {'action', 'generation'},
+            'reset_request': {'action', 'generation'},
+        }
+        if (not isinstance(p, dict) or not isinstance(p.get('action'), str)
+                or set(p) != fields.get(p['action']) or len(pack(p)) > 4096):
+            raise ValueError('Invalid bootstrap fields')
         action = p.get("action")
         if action == "generation_hint":
             pending = self.d["bootstrap"].get(peer, {})

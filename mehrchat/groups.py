@@ -53,6 +53,10 @@ class Groups:
             raise ValueError('Invalid group descriptor fields')
         owner = body["owner"]
         if "chain" not in descriptor:
+            # Legacy descriptors predate epoch chains. Bound their entire
+            # representation before retaining them in history/group state.
+            if len(pack(descriptor)) > 16384:
+                raise ValueError('Legacy group descriptor too large')
             verify(self.e.peer_card(owner), descriptor)
             for p in body["members"]:
                 check_card(self.e.peer_card(p))

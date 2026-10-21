@@ -85,6 +85,21 @@ class MessageBoundaryTests(unittest.TestCase):
     def test_text_must_be_string(self):
         self.reject(dict(self.payload(), text=['x'] * 100))
 
+    def test_bootstrap_padding_cannot_enter_state_or_reply(self):
+        low, high = sorted((self.a, self.b), key=lambda e: e.me)
+        before = copy.deepcopy(high.d)
+        with self.assertRaises(ValueError):
+            high.secure.bootstrap(low.me, {'action': 'hello', 'sid': 'a' * 32,
+                'initiator': low.me, 'responder': high.me, 'generation': 0,
+                'eph': low.card['body']['box'], 'padding': 'x' * 131072})
+        self.assertEqual(before, high.d)
+
+    def test_large_legacy_group_descriptor_cannot_enter_history(self):
+        descriptor = signed(self.a.identity, {'v': 1, 'owner': self.a.me,
+            'members': [self.a.me, self.b.me], 'name': 'legacy', 'padding': 'x' * 17000})
+        with self.assertRaises(ValueError):
+            self.b.validate_chat(descriptor, self.a.me)
+
     def test_history_limit_rejects_receive_without_ratchet_advance(self):
         with patch('mehrchat.client.MAX_HISTORY_BYTES', 100):
             self.reject(self.payload())
