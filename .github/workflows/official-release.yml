@@ -1,7 +1,7 @@
 name: Publish verified official release
 on:
   push:
-    branches: [main]
+    branches: [main, fix/release-artifact-selection]
 permissions:
   contents: read
   actions: read
@@ -25,7 +25,15 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const commit = (await github.rest.repos.getCommit({...context.repo, ref:context.sha})).data;
+            const trigger = (await github.rest.repos.getCommit({...context.repo, ref:context.sha})).data;
+            const selected = trigger.commit.message.match(/^Release-Commit: ([a-f0-9]{40})$/m);
+            const releaseCommit = selected ? selected[1] : context.sha;
+            if (releaseCommit !== context.sha) {
+              const comparison = (await github.rest.repos.compareCommitsWithBasehead({...context.repo,basehead:releaseCommit+'...'+context.sha})).data;
+              if (!['ahead','identical'].includes(comparison.status) || comparison.files.length !== 1 || comparison.files[0].filename !== '.github/workflows/official-release.yml' || comparison.files[0].status !== 'modified') throw new Error('Only the publisher workflow may differ from the verified release commit');
+            }
+            const commit = (await github.rest.repos.getCommit({...context.repo, ref:releaseCommit})).data;
+            core.setOutput('release',releaseCommit);
             if (commit.parents.length !== 2) throw new Error('Release must use a verified two-parent PR merge');
             const source = commit.parents[1].sha;
             const tested = (await github.rest.repos.getCommit({...context.repo, ref:source})).data;
@@ -48,11 +56,38 @@ jobs:
             core.setOutput('version',version);
             core.setOutput('run',String(run.id));
             core.setOutput('source',source);
-      - uses: actions/download-artifact@v4
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts,{...context.repo,run_id:run.id,per_page:100});
+            const latest = new Map();
+            for (const artifact of artifacts) {
+              if (artifact.expired) continue;
+              const previous = latest.get(artifact.name);
+              if (!previous || Date.parse(artifact.created_at) > Date.parse(previous.created_at)) latest.set(artifact.name,artifact);
+            }
+            for (const name of ['native-reports-Windows','native-reports-Linux','android-reports-x86_64','MehrChat-Windows-native','MehrChat-Linux-native','MehrChat-Android-arm64-v8a']) {
+              if (!latest.has(name)) throw new Error('Missing verified artifact: '+name);
+            }
+            core.setOutput('artifacts',JSON.stringify([...latest.values()].map(a=>({id:a.id,name:a.name}))));
+      - name: Use exact verified release source
+        run: git checkout --detach '${{ steps.verified.outputs.release }}'
+      - name: Download exact selected artifact IDs
+        uses: actions/github-script@v7
+        env:
+          SELECTED_ARTIFACTS: ${{ steps.verified.outputs.artifacts }}
         with:
-          run-id: ${{ steps.verified.outputs.run }}
-          github-token: ${{ github.token }}
-          path: verified-artifacts
+          script: |
+            const fs = require('fs');
+            const {execFileSync} = require('child_process');
+            for (const artifact of JSON.parse(process.env.SELECTED_ARTIFACTS)) {
+              if (!/^[a-zA-Z0-9_.-]+$/.test(artifact.name)) throw new Error('Invalid artifact name');
+              const archive = await github.rest.actions.downloadArtifact({...context.repo,artifact_id:artifact.id,archive_format:'zip'});
+              const file = 'artifact-'+artifact.id+'.zip';
+              fs.writeFileSync(file,Buffer.from(archive.data));
+              const destination = 'verified-artifacts/'+artifact.name;
+              fs.mkdirSync(destination,{recursive:true});
+              execFileSync('unzip',['-q',file,'-d',destination]);
+              fs.unlinkSync(file);
+              core.info('Downloaded exact artifact '+artifact.name+' (#'+artifact.id+')');
+            }
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -89,9 +124,11 @@ jobs:
           ANDROID_CERT_SHA256: ${{ steps.verified.outputs.certificate }}
         run: python scripts/prepare_official_release.py
       - name: Publish complete official release
+        if: github.ref == 'refs/heads/main'
         uses: actions/github-script@v7
         env:
           RELEASE_VERSION: ${{ steps.verified.outputs.version }}
+          RELEASE_COMMIT: ${{ steps.verified.outputs.release }}
           TESTED_SOURCE: ${{ steps.verified.outputs.source }}
           TESTED_RUN: ${{ steps.verified.outputs.run }}
           ANDROID_CERT_SHA256: ${{ steps.verified.outputs.certificate }}
@@ -100,10 +137,11 @@ jobs:
             const fs = require('fs');
             const version = process.env.RELEASE_VERSION;
             const tag = 'v'+version;
-            const body = `Secure Ubuntu installation with verified TLS/private-CA fallback, authenticated pre-login connection setup, dedicated Windows/Android builds and refreshed Persian desktop/mobile UI.\n\nInstallation and setup: see README.md in the source archive or repository.\n\nSource: ${context.sha}\nTested source (identical tree): ${process.env.TESTED_SOURCE}\nNative/Android validation: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${process.env.TESTED_RUN}\n\nAndroid release is non-debuggable and signed with the existing owner key. Certificate SHA-256: ${process.env.ANDROID_CERT_SHA256}\nWindows executables are not Authenticode-signed.\n\nAssets include Windows/Linux clients and relays, the signed Android arm64 APK, Ubuntu server source/installer, actual Windows/Android UI screenshots, test reports, English installation guide and SHA-256 checksums. No independent security audit is claimed.`;
+            const releaseCommit = process.env.RELEASE_COMMIT;
+            const body = `Secure Ubuntu installation with verified TLS/private-CA fallback, authenticated pre-login connection setup, dedicated Windows/Android builds and refreshed Persian desktop/mobile UI.\n\nInstallation and setup: see README.md in the source archive or repository.\n\nSource: ${releaseCommit}\nTested source (identical tree): ${process.env.TESTED_SOURCE}\nNative/Android validation: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${process.env.TESTED_RUN}\n\nAndroid release is non-debuggable and signed with the existing owner key. Certificate SHA-256: ${process.env.ANDROID_CERT_SHA256}\nWindows executables are not Authenticode-signed.\n\nAssets include Windows/Linux clients and relays, the signed Android arm64 APK, Ubuntu server source/installer, actual Windows/Android UI screenshots, test reports, English installation guide and SHA-256 checksums. No independent security audit is claimed.`;
             const existing = (await github.rest.repos.listReleases({...context.repo,per_page:100})).data.find(r=>r.tag_name === tag);
-            if (existing && (!existing.draft || existing.target_commitish !== context.sha)) throw new Error('Refusing to replace an existing public or unrelated release');
-            const release = existing ? {data:existing} : await github.rest.repos.createRelease({...context.repo,tag_name:tag,target_commitish:context.sha,name:'MehrChat '+version,body,draft:true,prerelease:false});
+            if (existing && (!existing.draft || existing.target_commitish !== releaseCommit)) throw new Error('Refusing to replace an existing public or unrelated release');
+            const release = existing ? {data:existing} : await github.rest.repos.createRelease({...context.repo,tag_name:tag,target_commitish:releaseCommit,name:'MehrChat '+version,body,draft:true,prerelease:false});
             const crypto = require('crypto');
             const uploaded = (await github.rest.repos.listReleaseAssets({...context.repo,release_id:release.data.id,per_page:100})).data;
             for (const name of fs.readdirSync('release-assets').sort()) {
