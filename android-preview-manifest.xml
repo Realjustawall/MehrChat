@@ -1,0 +1,1 @@
+<service android:name="org.mehrchat.preview.PreviewService" android:exported="false" android:isolatedProcess="true" android:process=":media_preview" />

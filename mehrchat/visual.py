@@ -9,14 +9,18 @@ from kivy.core.text import Label as CoreLabel
 from kivy.clock import Clock
 from kivy.core.image import Image as CoreImage
 from kivy.graphics import Color, Rectangle, Line, Fbo, ClearColor, ClearBuffers, Scale, Translate
-from kivy.metrics import dp
+from kivy.metrics import dp, sp
 from kivy.uix.widget import Widget
 from kivy.properties import StringProperty, NumericProperty
+from .appearance import appearance
+from .bidi_text import shaped as shape_line
 
 ASSETS = Path(__file__).resolve().parent.parent / 'assets'
 FONT = str(ASSETS / 'Vazirmatn-Regular.ttf')
 ICONS = json.loads((ASSETS / 'telegram-icons.json').read_text(encoding='utf-8'))
-EMOJI = json.loads((ASSETS / 'emoji.json').read_text(encoding='utf-8'))
+EMOJI_DATA = json.loads((ASSETS / 'emoji-atlas.json').read_text(encoding='utf-8'))
+EMOJI = tuple(EMOJI_DATA)
+EMOJI_SET = frozenset(EMOJI)
 EMOJI_RE = re.compile('(' + '|'.join(re.escape(e) for e in sorted(EMOJI, key=len, reverse=True)) + ')')
 
 
@@ -24,8 +28,19 @@ def emoji_path(value):
     return str(ASSETS / 'emoji' / ('-'.join(f'{ord(c):x}' for c in value if ord(c) != 0xfe0f) + '.png'))
 
 
+@lru_cache(maxsize=4)
+def _emoji_atlas(page):
+    return CoreImage(str(ASSETS/f'emoji-atlas-{page}.png')).texture
+
+
+@lru_cache(maxsize=768)
+def emoji_texture(value):
+    item=EMOJI_DATA[value]
+    return _emoji_atlas(item['page']).get_region(item['x'],item['y'],48,48)
+
+
 def shaped(value):
-    return get_display(arabic_reshaper.reshape(value))
+    return shape_line(value, EMOJI_RE)
 
 
 @lru_cache(maxsize=4096)
@@ -34,7 +49,7 @@ def text_width(value, size):
 
 
 def content_width(value, size):
-    return sum(size * 1.25 if part in EMOJI else text_width(part, size) for part in EMOJI_RE.split(value) if part)
+    return sum(size * 1.25 if part in EMOJI_SET else text_width(part, size) for part in EMOJI_RE.split(value) if part)
 
 
 def wrap_pixels(value, width, size):
@@ -48,7 +63,7 @@ def wrap_pixels(value, width, size):
             # Emoji sequences stay atomic even when a long unbroken token wraps.
             units = []
             for part in EMOJI_RE.split(word):
-                units.extend([part] if part in EMOJI else list(part))
+                units.extend([part] if part in EMOJI_SET else list(part))
             for unit in units:
                 if line and content_width(line + unit, size) > width:
                     result.append(line.rstrip()); line = ''
@@ -59,8 +74,9 @@ def wrap_pixels(value, width, size):
 
 class MessageText(Widget):
     value = StringProperty('')
-    font_size = NumericProperty(dp(15))
+    font_size = NumericProperty(sp(14))
     def __init__(self, value='', **kwargs):
+        kwargs.setdefault('font_size',sp(14*appearance.text_scale))
         super().__init__(size_hint_y=None, **kwargs)
         self.value = value
         self._draw = Clock.create_trigger(self.redraw, -1)
@@ -83,11 +99,11 @@ class MessageText(Widget):
                 parts = [p for p in EMOJI_RE.split(visual) if p]
                 rendered = []
                 for part in parts:
-                    if part in EMOJI:
-                        texture = CoreImage(emoji_path(part)).texture
+                    if part in EMOJI_SET:
+                        texture = emoji_texture(part)
                         rendered.append((texture, self.font_size * 1.25, self.font_size * 1.25))
                     else:
-                        text = CoreLabel(text=part, font_name=FONT, font_size=self.font_size, color=(.08,.12,.16,1))
+                        text = CoreLabel(text=part, font_name=FONT, font_size=self.font_size, color=appearance.colors["text"])
                         text.refresh()
                         rendered.append((text.texture, text.texture.width, text.texture.height))
                     self._textures.append(rendered[-1][0])
@@ -109,13 +125,13 @@ class ChatWallpaper(Widget):
     def draw(self, *_):
         self.canvas.clear()
         with self.canvas:
-            Color(.84,.89,.89,1)
+            Color(*appearance.colors["wallpaper"])
             Rectangle(pos=self.pos,size=self.size)
             texture = CoreImage(str(ASSETS / 'telegram-chat-pattern.png')).texture
             texture.wrap = 'repeat'
             repeat_x = self.width / dp(540)
             repeat_y = self.height / dp(1080)
-            Color(1,1,1,.12)
+            Color(1,1,1,.045 if appearance.theme=="dark" else .12)
             Rectangle(texture=texture,pos=self.pos,size=self.size,
                       tex_coords=(0,0,repeat_x,0,repeat_x,repeat_y,0,repeat_y))
 
@@ -125,10 +141,10 @@ def input_texture(value, size):
     parts = [p for p in EMOJI_RE.split(shaped(value)) if p]
     rendered = []
     for part in parts:
-        if part in EMOJI:
-            rendered.append((CoreImage(emoji_path(part)).texture, int(size*1.25), int(size*1.25)))
+        if part in EMOJI_SET:
+            rendered.append((emoji_texture(part), int(size*1.25), int(size*1.25)))
         else:
-            text=CoreLabel(text=part,font_name=FONT,font_size=size,color=(.08,.12,.16,1));text.refresh()
+            text=CoreLabel(text=part,font_name=FONT,font_size=size,color=appearance.colors["text"]);text.refresh()
             rendered.append((text.texture,text.texture.width,text.texture.height))
     width=max(1,int(sum(p[1] for p in rendered)));height=max(1,int(max((p[2] for p in rendered),default=size*1.7)))
     fbo=Fbo(size=(width,height))

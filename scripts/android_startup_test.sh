@@ -34,7 +34,7 @@ adb shell "run-as $package sh -c 'cat > files/ci-network.json'" < reports/androi
 adb shell "run-as $package sh -c 'printf \"\\nMEHRCHAT_SMOKE_TEST=flow\\nMEHRCHAT_SMOKE_RESULT=$result\\nMEHRCHAT_SMOKE_NETWORK_CONFIG=$private_dir/files/ci-network.json\\nMEHRCHAT_SMOKE_GALLERY=$private_dir/files/ui-android\\nMEHRCHAT_SMOKE_SCREENSHOT=$private_dir/files/ci-layout.png\\n\" >> $envfile'"
 adb logcat -c
 adb shell am start -W -n "$component" >> reports/android-launch.txt
-for index in $(seq 1 60); do
+for index in $(seq 1 100); do
   if adb shell run-as "$package" test -f "$result"; then break;fi
   sleep 1
 done
@@ -42,7 +42,7 @@ adb logcat -d > reports/android-logcat-flow.txt
 adb shell run-as "$package" cat "$result" > reports/android-gui-flow.json
 adb exec-out run-as "$package" cat "$private_dir/files/ci-layout.png" > reports/android-layout.png
 mkdir -p reports/ui/android
-for name in 01-connect 02-login 03-private-chat 04-group-chat 05-chat-list 06-connection-settings 07-profile 08-password 09-identity-card 10-add-contact 11-edit-group 12-chat-info 13-emoji-picker; do
+for name in 01-connect 02-login 03-private-chat 04-group-chat 05-chat-list 06-connection-settings 07-profile 08-password 09-identity-card 10-add-contact 11-edit-group 12-chat-info 13-emoji-picker 14-fa-light 15-fa-dark 16-en-light 17-en-dark; do
   adb exec-out run-as "$package" cat "$private_dir/files/ui-android/$name.png" > "reports/ui/android/$name.png"
 done
 python - <<'PY'

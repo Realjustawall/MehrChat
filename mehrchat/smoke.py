@@ -22,7 +22,7 @@ TEXT = "سلام، آزمون پیام فارسی"
 
 def install(app, result_path):
     app.test_mode = True
-    deadline = time.monotonic() + 65
+    deadline = time.monotonic() + 90
     gallery = os.environ.get("MEHRCHAT_SMOKE_GALLERY")
     gallery = Path(gallery) if gallery else None
     if gallery:
@@ -297,9 +297,43 @@ def install(app, result_path):
                         result["tcp_noise_e2ee_request_reply"] = True
                         assert network["relay"]["transport"] == "tls"
                         result["tls_noise_e2ee_request_reply"] = True
-                    Path(result_path).write_text(json.dumps(result))
-                    print("NATIVE_GUI_FLOW_PASS", flush=True)
-                    app.stop()
+                    # Decode a known local fixture using the actual packaged sandbox.
+                    # On Android the main looper must stay free for ServiceConnection.
+                    import threading
+                    def verify_media():
+                        try:
+                            from .media import make_preview,preview_pixels
+                            from .contact_invite import qr_png
+                            preview=make_preview(qr_png('MehrChat sandbox fixture'))
+                            assert preview and preview['kind']=='image' and len(preview_pixels(preview))<=256*256*3
+                            result['isolated_media_preview']=True
+                            if platform=='android':
+                                from jnius import autoclass
+                                bridge=autoclass('org.mehrchat.preview.PreviewBridge')
+                                activity=autoclass('org.kivy.android.PythonActivity').mActivity
+                                isolated=json.loads(str(bridge.render(activity,b'probe','probe')))
+                                assert isolated['files_denied'] and isolated['uid_isolated'],isolated
+                                result['isolated_android_uid_and_files']=True
+                            modes=[('fa','light'),('fa','dark'),('en','light'),('en','dark')]
+                            def completed(*_):
+                                if modes:
+                                    language,theme=modes.pop(0)
+                                    app.set_appearance(language=language,theme=theme)
+                                    index=17-len(modes)
+                                    def shot(*_):
+                                        assert app.compose.width>0
+                                        capture(f'{index:02d}-{language}-{theme}')
+                                        Clock.schedule_once(completed,.1)
+                                    Clock.schedule_once(shot,.45)
+                                    return
+                                result['persian_english_light_dark']=True
+                                Path(result_path).write_text(json.dumps(result))
+                                print('NATIVE_GUI_FLOW_PASS',flush=True);app.stop()
+                            Clock.schedule_once(completed)
+                        except Exception as error:
+                            def failed(*_,message=repr(error)):raise AssertionError('Isolated media preview failed: '+message)
+                            Clock.schedule_once(failed)
+                    threading.Thread(target=verify_media,daemon=True).start()
 
                 Clock.schedule_once(finish, 1.5)
                 return False
