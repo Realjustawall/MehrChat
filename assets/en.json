@@ -205,5 +205,12 @@
   "صف پیام‌های در انتظار پر است": "The outgoing message queue is full",
   "رابط بومی با آیکون‌های Telegram Web A": "Native interface with Telegram Web A icons",
   "GPL-3.0 · نرم‌افزار آزاد، بدون ضمانت": "GPL-3.0 · Free software, without warranty",
-  "مجوزها همراه برنامه در assets/licenses هستند.": "Bundled licenses are in assets/licenses."
+  "مجوزها همراه برنامه در assets/licenses هستند.": "Bundled licenses are in assets/licenses.",
+  "همه رنگ‌های پوست": "All skin tones",
+  "پیش‌فرض": "Default",
+  "پوست روشن": "Light skin",
+  "پوست گندمی روشن": "Medium-light skin",
+  "پوست گندمی": "Medium skin",
+  "پوست گندمی تیره": "Medium-dark skin",
+  "پوست تیره": "Dark skin"
 }

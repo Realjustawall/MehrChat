@@ -1413,7 +1413,7 @@ class MehrApp(App):
                 'فعالیت‌ها':'Activities','اشیا':'Objects','نمادها':'Symbols','پرچم‌ها':'Flags'}
         category=Spinner(text='همه',values=tuple(groups),size_hint_y=None,height=dp(40))
         box.add_widget(category)
-        tones=Spinner(text='All tones',values=('All tones','Default','Light','Medium-light','Medium','Medium-dark','Dark'),
+        tones=Spinner(text='همه رنگ‌های پوست',values=('همه رنگ‌های پوست','پیش‌فرض','پوست روشن','پوست گندمی روشن','پوست گندمی','پوست گندمی تیره','پوست تیره'),
                       size_hint_y=None,height=dp(40));box.add_widget(tones)
         scroller=ScrollView(do_scroll_x=False,size_hint_y=None,height=min(dp(270),Window.height*.32))
         grid=GridLayout(cols=6,spacing=dp(5),size_hint_y=None)
