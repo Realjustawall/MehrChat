@@ -33,7 +33,8 @@ public final class PreviewService extends Service {
                     byte[] raw=bytes.toByteArray();JSONObject value;
                     if(kind.equals("probe")){
                         boolean denied=false;
-                        try(FileInputStream secret=new FileInputStream(getApplicationInfo().dataDir+"/files/app/main.py")){secret.read();}catch(Exception expected){denied=true;}
+                        String canary=new String(raw,java.nio.charset.StandardCharsets.UTF_8);
+                        try(FileInputStream secret=new FileInputStream(canary)){secret.read();}catch(Exception expected){denied=true;}
                         value=new JSONObject();value.put("files_denied",denied);value.put("uid_isolated",android.os.Process.myUid()!=getApplicationInfo().uid);
                     }
                     else if(kind.equals("image")) value=image(raw);

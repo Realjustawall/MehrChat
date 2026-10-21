@@ -309,7 +309,10 @@ def install(app, result_path):
                             result['isolated_media_preview']=True
                             if platform=='android':
                                 from .android_preview import render
-                                isolated=json.loads(render(b'probe','probe'))
+                                canary=app.vault_path.parent/'ci-media-canary.txt'
+                                canary.write_bytes(b'private isolation test fixture')
+                                try:isolated=json.loads(render(str(canary).encode('utf-8'),'probe'))
+                                finally:canary.unlink(missing_ok=True)
                                 assert isolated['files_denied'] and isolated['uid_isolated'],isolated
                                 result['isolated_android_uid_and_files']=True
                             modes=[('fa','light'),('fa','dark'),('en','light'),('en','dark')]
