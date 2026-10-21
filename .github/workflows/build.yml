@@ -226,7 +226,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - uses: actions/cache/save@v4
-        if: steps.android-cache.outputs.cache-hit != 'true'
+        if: always() && steps.android-cache.outputs.cache-hit != 'true'
         with:
           path: |
             ~/.buildozer
