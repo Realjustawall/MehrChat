@@ -259,6 +259,8 @@ def install(app, result_path):
                     )
                     if network:
                         result["tcp_noise_e2ee_request_reply"] = True
+                        assert network["relay"]["transport"] == "tls"
+                        result["tls_noise_e2ee_request_reply"] = True
                     Path(result_path).write_text(json.dumps(result))
                     print("NATIVE_GUI_FLOW_PASS", flush=True)
                     app.stop()

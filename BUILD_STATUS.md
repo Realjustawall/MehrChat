@@ -13,3 +13,5 @@ Physical-device file-provider/keyboard/background behavior, public ACME issuance
 
 
 Version 0.5.0 adds a real disposable Ubuntu source-installer test: pip/systemd installation, administrator username/password verification, TLS/Noise protocol, renewal timer, private-key permissions and upgrade retention of the server Noise identity and private CA. Windows and Android jobs capture 12 UI screens from temporary accounts. Official publishing requires successful native and Android jobs for the same Git tree, then verifies the externally signed APK's payload, owner certificate and alignment before publishing any release.
+
+Android network validation uses verified TLS plus pinned Noise and E2EE with a private test CA covering the emulator bridge IP. Public CA roots are explicitly bundled and tested with OS CA discovery disabled.

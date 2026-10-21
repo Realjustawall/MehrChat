@@ -46,12 +46,36 @@ def local_certificate(root, hosts):
     if ca_path.exists():
         ca = x509.load_pem_x509_certificate(ca_path.read_bytes())
         key = serialization.load_pem_private_key(key_path.read_bytes(), None)
+        public_format = serialization.PublicFormat.SubjectPublicKeyInfo
+        if key.public_key().public_bytes(serialization.Encoding.DER, public_format) != ca.public_key().public_bytes(serialization.Encoding.DER, public_format):
+            raise ValueError("Private CA key does not match its certificate")
+        missing = []
+        for extension in (x509.SubjectKeyIdentifier.from_public_key(key.public_key()),
+                          x509.AuthorityKeyIdentifier.from_issuer_public_key(key.public_key())):
+            try:
+                ca.extensions.get_extension_for_class(type(extension))
+            except x509.ExtensionNotFound:
+                missing.append(extension)
+        if missing:
+            (root / "ca-legacy.pem").write_bytes(ca.public_bytes(serialization.Encoding.PEM))
+            builder = (x509.CertificateBuilder().subject_name(ca.subject).issuer_name(ca.issuer)
+                       .public_key(ca.public_key()).serial_number(ca.serial_number)
+                       .not_valid_before(ca.not_valid_before_utc).not_valid_after(ca.not_valid_after_utc))
+            for extension in ca.extensions:
+                builder = builder.add_extension(extension.value, extension.critical)
+            for extension in missing:
+                builder = builder.add_extension(extension, critical=False)
+            ca = builder.sign(key, hashes.SHA256())
+            ca_path.write_bytes(ca.public_bytes(serialization.Encoding.PEM))
+            print("Updated legacy CA certificate identifiers; redistribute the exported public profile to strict TLS clients.")
     else:
         key = ec.generate_private_key(ec.SECP256R1())
         name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "MehrChat private deployment CA")])
         ca = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
               .serial_number(x509.random_serial_number()).not_valid_before(now - timedelta(minutes=5))
               .not_valid_after(now + timedelta(days=3650))
+              .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
+              .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(key.public_key()), critical=False)
               .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
               .add_extension(x509.KeyUsage(False, False, False, False, False, True, True, False, False), critical=True)
               .sign(key, hashes.SHA256()))
@@ -67,6 +91,8 @@ def local_certificate(root, hosts):
     leaf = (x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, hosts[0])]))
             .issuer_name(ca.subject).public_key(leaf_key.public_key()).serial_number(x509.random_serial_number())
             .not_valid_before(now - timedelta(minutes=5)).not_valid_after(min(now + timedelta(days=365), ca.not_valid_after_utc))
+            .add_extension(x509.SubjectKeyIdentifier.from_public_key(leaf_key.public_key()), critical=False)
+            .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(key.public_key()), critical=False)
             .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
             .add_extension(x509.SubjectAlternativeName(names), critical=False)
             .add_extension(x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)

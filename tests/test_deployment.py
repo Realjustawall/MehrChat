@@ -4,7 +4,10 @@ from pathlib import Path
 import ssl
 import tempfile
 import unittest
-from mehrchat.connection import probe, validate_profile
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from unittest import mock
+from mehrchat.connection import probe, validate_profile, tls_context
 from mehrchat.crypto import create_identity, public_card, enc
 from mehrchat.deployment import local_certificate, save_admin, verify_admin
 from mehrchat.server import Relay
@@ -12,6 +15,16 @@ from mehrchat.wire import connect
 
 
 class Credentials(unittest.TestCase):
+    def test_public_roots_and_verification_without_os_ca_discovery(self):
+        # Android's embedded Python must not depend on OS OpenSSL CA discovery.
+        empty = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        self.assertEqual(empty.cert_store_stats()["x509_ca"], 0)
+        with mock.patch("mehrchat.connection.ssl.create_default_context", return_value=empty):
+            context = tls_context()
+        self.assertGreater(context.cert_store_stats()["x509_ca"], 0)
+        self.assertTrue(context.check_hostname)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+
     def test_password_hash_and_username_are_both_required(self):
         with tempfile.TemporaryDirectory() as directory:
             save_admin(directory, 'operator', 'long test password 123')
@@ -89,3 +102,24 @@ class TLSDeployment(unittest.IsolatedAsyncioTestCase):
         self.server = await asyncio.start_server(self.relay.handle, '127.0.0.1', 0, ssl=context)
         self.profile['port'] = self.server.sockets[0].getsockname()[1]
         await probe(self.profile)
+
+
+    async def test_legacy_ca_metadata_upgrade_preserves_private_key_and_strict_trust(self):
+        directory = self.root / 'tls'
+        original_key = (directory / 'ca-key.pem').read_bytes()
+        key = serialization.load_pem_private_key(original_key, None)
+        original = x509.load_pem_x509_certificate((directory / 'ca.pem').read_bytes())
+        builder = (x509.CertificateBuilder().subject_name(original.subject).issuer_name(original.issuer)
+                   .public_key(original.public_key()).serial_number(original.serial_number)
+                   .not_valid_before(original.not_valid_before_utc).not_valid_after(original.not_valid_after_utc))
+        for extension in original.extensions:
+            if not isinstance(extension.value, (x509.SubjectKeyIdentifier, x509.AuthorityKeyIdentifier)):
+                builder = builder.add_extension(extension.value, extension.critical)
+        legacy = builder.sign(key, hashes.SHA256()).public_bytes(serialization.Encoding.PEM)
+        (directory / 'ca.pem').write_bytes(legacy)
+        ca = local_certificate(directory, ['127.0.0.1'])
+        self.assertEqual((directory / 'ca-key.pem').read_bytes(), original_key)
+        self.assertEqual((directory / 'ca-legacy.pem').read_bytes(), legacy)
+        self.assertNotEqual(ca.encode(), legacy)
+        self.assertTrue(tls_context(ca).verify_flags & ssl.VERIFY_X509_STRICT)
+        await probe(dict(self.profile, ca=ca))

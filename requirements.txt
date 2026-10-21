@@ -11,3 +11,6 @@ pydantic-core==2.41.4
 typing-extensions==4.15.0
 typing-inspection==0.4.2
 annotated-types==0.7.0
+
+# Explicit public TLS trust store, including Android runtimes without OS CA discovery.
+certifi==2026.10.19

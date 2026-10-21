@@ -1,3 +1,6 @@
 PyNaCl==1.6.2
 noiseprotocol==0.3.1
 cryptography==50.0.2
+
+# Explicit public TLS trust store, including Android runtimes without OS CA discovery.
+certifi==2026.10.19

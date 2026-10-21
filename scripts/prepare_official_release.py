@@ -32,8 +32,11 @@ sdk = Path(os.environ.get('ANDROID_HOME', '/usr/local/lib/android/sdk'))
 tools = sorted((sdk / 'build-tools').glob('*'), key=lambda p: [int(n) if n.isdigit() else n for n in re.split(r'(\d+)', p.name)])[-1]
 verification = subprocess.check_output([str(tools / 'apksigner'), 'verify', '--verbose', '--print-certs', str(signed)], text=True)
 assert 'Number of signers: 1' in verification
-cert = re.search(r'Signer #1 certificate SHA-256 digest: ([a-fA-F0-9]+)', verification).group(1).lower()
-assert cert == os.environ['ANDROID_CERT_SHA256']
+print(verification)
+# Recent build-tools prefix certificate lines with SDK ranges instead of #1.
+certificates = re.findall(r'(?im)^.*certificate SHA-256 digest:\s*([a-f0-9]{64})\s*$', verification)
+assert certificates, 'Verifier did not print a certificate SHA-256 digest'
+assert {value.lower() for value in certificates} == {os.environ['ANDROID_CERT_SHA256']}
 subprocess.run([str(tools / 'zipalign'), '-c', '-P', '16', '4', str(signed)], check=True)
 (out / 'Android-signature-verification.txt').write_text(verification)
 shutil.copyfile(signed, out / f'MehrChat-{version}-Android-arm64-v8a.apk')

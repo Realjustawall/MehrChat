@@ -111,6 +111,8 @@ def main():
     relay = Relay(DATA)
     pin = relay.pin
     relay.db.close()
+    listen_host = '::' if ipaddress.ip_address(host).version == 6 else '0.0.0.0'
+    loopback_host = '::1' if ipaddress.ip_address(host).version == 6 else '127.0.0.1'
     hosts = [host] + ([domain] if domain else [])
     ca = local_certificate(TLS, hosts)
     public = False
@@ -131,7 +133,7 @@ def main():
     own(DATA)
     override = Path('/etc/systemd/system/mehr-relay.service.d')
     override.mkdir(parents=True, exist_ok=True)
-    (override / 'tls.conf').write_text('[Service]\nExecStart=\nExecStart=/opt/mehrchat/venv/bin/python -m mehrchat.server --data /var/lib/mehrchat --port ' + str(port) + ' --tls-cert /var/lib/mehrchat/tls/server.pem --tls-key /var/lib/mehrchat/tls/server-key.pem\n')
+    (override / 'tls.conf').write_text('[Service]\nExecStart=\nExecStart=/opt/mehrchat/venv/bin/python -m mehrchat.server --data /var/lib/mehrchat --host ' + listen_host + ' --port ' + str(port) + ' --tls-cert /var/lib/mehrchat/tls/server.pem --tls-key /var/lib/mehrchat/tls/server-key.pem\n')
     Path('/etc/systemd/system/mehr-tls-renew.service').write_text('[Unit]\nDescription=Renew MehrChat TLS with private CA fallback\n[Service]\nType=oneshot\nExecStart=/opt/mehrchat/venv/bin/python /opt/mehrchat/deploy/setup-ubuntu.py --renew\nWorkingDirectory=/opt/mehrchat\nUMask=0077\n')
     Path('/etc/systemd/system/mehr-tls-renew.timer').write_text('[Unit]\nDescription=Maintain MehrChat TLS certificates\n[Timer]\nOnCalendar=daily\nRandomizedDelaySec=3600\nPersistent=true\n[Install]\nWantedBy=timers.target\n')
     run('systemctl', 'daemon-reload')
@@ -141,7 +143,7 @@ def main():
     # Test the real listener locally with the IP SAN; endpoint reachability is tested by clients.
     for attempt in range(20):
         try:
-            asyncio.run(probe(profile, connect_host="127.0.0.1"))
+            asyncio.run(probe(profile, connect_host=loopback_host))
             break
         except (OSError, ValueError):
             import time
