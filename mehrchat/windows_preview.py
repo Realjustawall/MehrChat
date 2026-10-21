@@ -105,6 +105,10 @@ def run_isolated(executable,raw,timeout=15):
              'TEMP':temp,'TMP':temp,'PYINSTALLER_RESET_ENVIRONMENT':'1'}
         for name in ('SystemDrive','USERPROFILE','LOCALAPPDATA','APPDATA','ProgramData','ProgramFiles','ProgramFiles(x86)','CommonProgramFiles'):
             if name in os.environ:env[name]=os.environ[name]
+        # CreateProcess does not propagate drive-current-directory variables
+        # into an explicitly supplied environment (e.g. executable D:, temp C:).
+        for drive in {Path(temp).drive,executable.drive,os.environ.get('SystemDrive','C:')}:
+            if drive:env['='+drive.upper()]=drive+'\\'
         environment=C.create_unicode_buffer('\0'.join(k+'='+v for k,v in sorted(env.items()))+'\0\0')
         command=C.create_unicode_buffer(subprocess.list2cmdline([str(executable)]))
         check(kernel.CreateProcessW(str(executable),command,None,None,True,0x00080000|0x400|4|0x08000000,
