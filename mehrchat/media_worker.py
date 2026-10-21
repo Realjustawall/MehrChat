@@ -82,7 +82,12 @@ def decode_av(raw,kind):
 
 def _decode_av(kind,input_path):
     import imageio_ffmpeg
-    executable=imageio_ffmpeg.get_ffmpeg_exe()
+    from pathlib import Path
+    from imageio_ffmpeg._definitions import FNAME_PER_PLATFORM,get_platform
+    # Select only the pinned bundled codec. imageio's discovery probes NUL
+    # and PATH, both intentionally unavailable in the Windows AppContainer.
+    executable=str(Path(imageio_ffmpeg.__file__).parent/'binaries'/FNAME_PER_PLATFORM[get_platform()])
+    if not os.path.isfile(executable):raise OSError('Bundled media codec missing')
     command=[executable,'-hide_banner','-loglevel','error','-nostdin','-threads','1',
              '-protocol_whitelist','file,pipe','-i',input_path]
     if kind=='video':
@@ -101,7 +106,9 @@ def _decode_av(kind,input_path):
                  '--ro-bind','/usr','/usr','--ro-bind','/lib','/lib','--proc','/proc','--dev','/dev','--tmpfs','/tmp',
                  '--ro-bind','/lib64','/lib64','--ro-bind',executable,'/tmp/ffmpeg','--ro-bind',input_path,'/tmp/input.media',
                  '--chdir','/tmp','/tmp/ffmpeg',*['/tmp/input.media' if x==input_path else x for x in command[1:]]]
-    result=subprocess.run(command,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=8,check=True)
+    # The worker already inherits a sink for stderr. Do not open the global NUL
+    # device from inside the AppContainer; feed EOF through an anonymous pipe.
+    result=subprocess.run(command,input=b'',stdout=subprocess.PIPE,timeout=8,check=True)
     if len(result.stdout)>maximum:raise ValueError('Decoder output exceeds limits')
     if kind=='video':
         if len(result.stdout)!=maximum:raise ValueError('Missing video frame')
