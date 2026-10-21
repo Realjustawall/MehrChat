@@ -142,3 +142,27 @@ def input_texture(value, size):
     # TextInput crops line textures using top-origin CoreLabel UV coordinates.
     fbo.texture.flip_vertical()
     return fbo
+
+
+def widget_pixels(widget):
+    """Capture actual composed pixels with integer attachments (ANGLE/GLES safe)."""
+    from math import ceil
+    parent = widget.parent.canvas if widget.parent else None
+    index = parent.indexof(widget.canvas) if parent else -1
+    fbo = None
+    if index >= 0:
+        parent.remove(widget.canvas)
+    try:
+        fbo = Fbo(size=(max(1,ceil(widget.width)),max(1,ceil(widget.height))),with_stencilbuffer=True)
+        with fbo:
+            ClearColor(0,0,0,0);ClearBuffers()
+            Translate(-widget.x,-widget.y,0)
+        fbo.add(widget.canvas)
+        fbo.draw()
+        return fbo.texture.pixels
+    finally:
+        if fbo is not None and fbo.indexof(widget.canvas)>=0:
+            fbo.remove(widget.canvas)
+        if index>=0:
+            parent.insert(index,widget.canvas)
+            parent.ask_update()

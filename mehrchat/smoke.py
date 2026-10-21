@@ -191,7 +191,8 @@ def install(app, result_path):
                     for logical, rect in zip(app.compose._lines, app.compose._lines_rects):
                         if logical.strip():
                             assert max(rect.tex_coords[1::2])-min(rect.tex_coords[1::2]) > 0, 'Composer cropped a zero-height texture region'
-                    pixels = app.compose.export_as_image().texture.pixels
+                    from .visual import widget_pixels
+                    pixels = widget_pixels(app.compose)
                     assert any(pixels[i+3] and max(pixels[i:i+3])<180 for i in range(0,len(pixels),4)), 'No visible composed draft text'
                     assert any(pixels[i+3] and min(pixels[i:i+3])>210 for i in range(0,len(pixels),4)), 'Composer render lost its background'
                 capture(pending_capture)
