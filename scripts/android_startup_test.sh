@@ -42,7 +42,7 @@ adb logcat -d > reports/android-logcat-flow.txt
 adb shell run-as "$package" cat "$result" > reports/android-gui-flow.json
 adb exec-out run-as "$package" cat "$private_dir/files/ci-layout.png" > reports/android-layout.png
 mkdir -p reports/ui/android
-for name in 01-connect 02-login 03-private-chat 04-group-chat 05-chat-list 06-connection-settings 07-profile 08-password 09-identity-card 10-add-contact 11-edit-group 12-chat-info; do
+for name in 01-connect 02-login 03-private-chat 04-group-chat 05-chat-list 06-connection-settings 07-profile 08-password 09-identity-card 10-add-contact 11-edit-group 12-chat-info 13-emoji-picker; do
   adb exec-out run-as "$package" cat "$private_dir/files/ui-android/$name.png" > "reports/ui/android/$name.png"
 done
 python - <<'PY'

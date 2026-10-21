@@ -20,6 +20,14 @@ from kivy.animation import Animation
 from kivy.clock import Clock
 from kivy.core.window import Window
 from kivy.graphics import Color, RoundedRectangle
+from kivy.uix.image import Image
+from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.gridlayout import GridLayout
+from kivy.core.clipboard import Clipboard
+from kivy.core.image import Image as CoreImage
+import io
+from .visual import ICONS, EMOJI, emoji_path, wrap_pixels, content_width, MessageText, ChatWallpaper, EMOJI_RE, input_texture
+from .contact_invite import address, invite, parse_invite, check_address, qr_png, decode_image
 from kivy.metrics import dp
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
@@ -40,10 +48,11 @@ from . import __version__
 
 ROOT = Path(__file__).resolve().parent.parent
 FONT = str(ROOT / "assets" / "Vazirmatn-Regular.ttf")
-BG = (0.055, 0.085, 0.12, 1)
-PANEL = (0.09, 0.13, 0.175, 1)
-BLUE = (0.28, 0.64, 0.87, 1)
-TEXT = (0.88, 0.93, 0.96, 1)
+BG = (0.93, 0.95, 0.96, 1)
+PANEL = (1, 1, 1, 1)
+BLUE = (0.20, 0.565, 0.925, 1)
+TEXT = (0.08, 0.12, 0.16, 1)
+MUTED = (0.44, 0.47, 0.50, 1)
 
 
 def fa(s):
@@ -80,12 +89,25 @@ class ModernButton(Button):
             Color(1, 1, 1, 1)
         self.bind(pos=self.redraw, size=self.redraw, state=self.redraw, disabled=self.redraw)
         self.base_color = color
+        self.halign = "center"
+        self.valign = "middle"
+        self.bind(size=lambda w,v:setattr(w,"text_size",(max(1,v[0]-dp(16)),max(1,v[1]-dp(4)))))
 
     def redraw(self, *_):
         self.shape.pos, self.shape.size = self.pos, self.size
         factor = 0.75 if self.state == "down" or self.disabled else 1
         self.fill.rgba = tuple(c * factor for c in self.base_color[:3]) + (self.base_color[3],)
 
+
+
+def icon_button(name, callback, primary=False):
+    widget = ModernButton(text=ICONS.get(name, ICONS.get('more', '')), font_name=str(ROOT/'assets/TelegramIcons.ttf'),
+                          font_size=dp(25), color=(1,1,1,1) if primary else MUTED,
+                          background_color=BLUE if primary else (0,0,0,0),
+                          size_hint=(None,None),size=(dp(44),dp(44)),pos_hint={'center_y':.5})
+    widget.shape.radius=[dp(22)]
+    widget.bind(on_release=lambda *_:callback())
+    return widget
 
 
 class Avatar(Surface):
@@ -103,12 +125,19 @@ class Avatar(Surface):
             **kw
         )
         self.rect.radius = [dp(24)]
-        self.add_widget(label(name.strip()[:1], font_size=dp(23)))
+        initial=label(name.strip()[:1], font_size=dp(23))
+        initial.color=(1,1,1,1)
+        self.add_widget(initial)
 
 
 def label(text="", **kw):
     kw.setdefault("font_size", dp(16))
-    return Label(text=fa(text), font_name=FONT, color=TEXT, **kw)
+    kw.setdefault("halign", "center")
+    kw.setdefault('valign', 'middle')
+    widget = Label(text=fa(text), font_name=FONT, color=TEXT, **kw)
+    widget.bind(size=lambda w, size: setattr(w, 'text_size', size))
+    widget.text_size = widget.size
+    return widget
 
 
 def wrapped_label(text, **kw):
@@ -117,10 +146,9 @@ def wrapped_label(text, **kw):
     def fit(*_):
         # Wrap logical Persian before bidi shaping; wrapping the visual string
         # reverses sentence fragments on narrow screens.
-        columns = max(8, int(widget.width / (widget.font_size * 0.65)))
-        lines = ["\n".join(textwrap.wrap(line, columns) or [""]) for line in str(text).split("\n")]
+        lines = wrap_pixels(str(text), max(dp(20), widget.width-dp(6)), widget.font_size)
         widget.text_size = widget.size
-        widget.text = fa("\n".join(lines))
+        widget.text = '\n'.join(fa(line) for line in lines)
 
     widget.bind(size=fit, font_size=fit)
     fit()
@@ -134,6 +162,7 @@ def button(text, callback, **kw):
         font_name=FONT,
         font_size=dp(15),
         background_color=color,
+        color=(1,1,1,1) if color == BLUE else TEXT,
         size_hint_y=None,
         height=dp(44),
         **kw
@@ -147,14 +176,15 @@ class PersianInput(TextInput):
         kw.update(background_normal="", background_active="", background_color=(0, 0, 0, 0))
         super().__init__(**kw)
         with self.canvas.before:
-            self.fill = Color(0.13, 0.18, 0.235, 1)
+            self.fill = Color(.94, .95, .96, 1)
             self.shape = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(14)])
-            Color(1, 1, 1, 1)
-        self.bind(pos=self.redraw, size=self.redraw, focus=self.redraw)
+            self.ink = Color(*(self.foreground_color if self.text else self.hint_text_color))
+        self.bind(pos=self.redraw, size=self.redraw, focus=self.redraw, text=self.redraw)
 
     def redraw(self, *_):
         self.shape.pos, self.shape.size = self.pos, self.size
-        self.fill.rgba = (0.16, 0.23, 0.30, 1) if self.focus else (0.13, 0.18, 0.235, 1)
+        self.fill.rgba = (.90,.95,1,1) if self.focus else (.94,.95,.96,1)
+        self.ink.rgba = (1,1,1,1) if not self.password and EMOJI_RE.search(self.text) else (self.foreground_color if self.text else self.hint_text_color)
 
     def _get_line_options(self):
         options = getattr(self, "_line_options", None)
@@ -169,9 +199,20 @@ class PersianInput(TextInput):
         return bool(re.search(r"[\u0600-\u06ff]", text)) and not self.password
 
     def _create_line_label(self, text, hint=False):
+        if not self.password and not hint and EMOJI_RE.search(text):
+            cache = getattr(self, '_emoji_lines', {})
+            key = (text, self.font_size)
+            if key not in cache:
+                if len(cache) > 24:
+                    cache.clear()
+                cache[key] = input_texture(text, self.font_size)
+            self._emoji_lines = cache
+            return cache[key].texture
         return super()._create_line_label(fa(text) if self._rtl(text) else text, hint)
 
     def _get_text_width(self, text, tab_width, cached):
+        if not self.password and EMOJI_RE.search(text):
+            return content_width(text,self.font_size)
         self._get_line_options()
         return super()._get_text_width(
             fa(text) if self._rtl(text) else text, tab_width, self._label_cached
@@ -209,6 +250,7 @@ class PersianInput(TextInput):
 def field(hint="", password=False, multiline=False):
     return PersianInput(
         hint_text=hint,
+        halign="right",
         password=password,
         multiline=multiline,
         font_name=FONT,
@@ -217,7 +259,7 @@ def field(hint="", password=False, multiline=False):
         foreground_color=TEXT,
         cursor_color=BLUE,
         padding=[dp(12), dp(8)],
-        hint_text_color=(0.54, 0.65, 0.74, 1),
+        hint_text_color=MUTED,
         size_hint_y=None,
         height=dp(48) if not multiline else dp(120),
     )
@@ -249,6 +291,9 @@ class MehrApp(App):
         return self.rootbox
 
     def resize_layout(self, *_):
+        if self.engine and hasattr(self, 'messagebox'):
+            self._view_signature = None
+            Clock.schedule_once(lambda *_: self.refresh(), .15)
         if (
             self.engine
             and hasattr(self, "mobile")
@@ -267,15 +312,45 @@ class MehrApp(App):
         return base / "MehrChat" / "identity.mcv"
 
     def dialog(self, title, body):
-        popup = Popup(
-            title=fa(title), title_font=FONT, content=body, size_hint=(0.94, 0.9)
-        )
+        # Compact, scrollable sheets: the keyboard/small screen never clips fields.
+        def compact(widget):
+            if isinstance(widget, Label) and widget.size_hint_y is not None:
+                widget.size_hint_y = None
+                widget.height = dp(56)
+            elif isinstance(widget, ScrollView):
+                widget.size_hint_y = None
+                widget.height = min(dp(250), Window.height * .34)
+                return
+            for child in widget.children:
+                compact(child)
+        compact(body)
+        body.size_hint_y = None
+        if hasattr(body, 'minimum_height'):
+            body.bind(minimum_height=body.setter('height'))
+            body.height = body.minimum_height
+        outer = Surface(orientation='vertical', padding=dp(20), spacing=dp(12))
+        header = BoxLayout(size_hint_y=None, height=dp(44))
+        header.add_widget(label(title, halign='right', font_size=dp(20)))
+        scroll = ScrollView(do_scroll_x=False, bar_width=dp(3))
+        scroll.add_widget(body)
+        outer.add_widget(header)
+        outer.add_widget(scroll)
+        popup = Popup(title='', title_size=0, separator_height=0,
+                      background='', background_color=(0,0,0,0),
+                      overlay_color=(.03,.07,.12,.45), content=outer, size_hint=(None,None))
+        header.add_widget(icon_button('close', popup.dismiss))
+        def fit(*_):
+            popup.width = min(dp(500), Window.width-dp(28))
+            popup.height = min(Window.height-dp(36), max(dp(240), body.height+dp(140)))
+        body.bind(height=fit)
+        Window.bind(size=fit)
         self.open_popups.append(popup)
-        popup.bind(
-            on_dismiss=lambda *_: (
-                self.open_popups.remove(popup) if popup in self.open_popups else None
-            )
-        )
+        def dismiss(*_):
+            Window.unbind(size=fit)
+            if popup in self.open_popups:
+                self.open_popups.remove(popup)
+        popup.bind(on_dismiss=dismiss)
+        Clock.schedule_once(fit)
         popup.open()
         return popup
 
@@ -313,7 +388,7 @@ class MehrApp(App):
         panel.add_widget(label("مهر", font_size=dp(38), size_hint_y=None, height=dp(64)))
         panel.add_widget(label(title, font_size=dp(22), size_hint_y=None, height=dp(38)))
         note = wrapped_label(subtitle, font_size=dp(13), size_hint_y=None, height=dp(60))
-        note.color = (0.60, 0.70, 0.78, 1)
+        note.color = MUTED
         panel.add_widget(note)
         Clock.schedule_once(fit)
         return panel
@@ -486,28 +561,20 @@ class MehrApp(App):
         self.sidebar = Surface(
             orientation="vertical",
             size_hint_x=None,
-            width=dp(348),
+            width=dp(360),
             padding=dp(10),
             spacing=dp(4),
         )
-        toolbar = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
-        toolbar.add_widget(
-            button(
-                "منو",
-                self.main_menu,
-                size_hint_x=None,
-                width=dp(62),
-                background_color=PANEL,
-            )
-        )
-        toolbar.add_widget(label("مهر", font_size=dp(23)))
-        toolbar.add_widget(button("+", self.new_menu, size_hint_x=None, width=dp(44)))
+        toolbar = BoxLayout(size_hint_y=None, height=dp(56), spacing=dp(8))
+        toolbar.add_widget(icon_button('hamburger', self.main_menu))
+        toolbar.add_widget(label('مهر', font_size=dp(24), halign='right'))
+        toolbar.add_widget(icon_button('new-chat-filled', self.new_menu))
         self.sidebar.add_widget(toolbar)
         self.search = field("جستجو")
         self.search.bind(text=lambda *_: self.refresh())
         self.sidebar.add_widget(self.search)
         caption = label("گفتگوهای شما", font_size=dp(12), size_hint_y=None, height=dp(30))
-        caption.color = (0.48, 0.64, 0.76, 1)
+        caption.color = BLUE
         self.sidebar.add_widget(caption)
         scroll = ScrollView()
         self.chatlist = BoxLayout(
@@ -522,30 +589,17 @@ class MehrApp(App):
             size_hint_y=None, height=dp(66), padding=[dp(12), dp(6)], spacing=dp(8)
         )
         if self.mobile:
-            header.add_widget(
-                button(
-                    "بازگشت",
-                    self.show_chat_list,
-                    size_hint_x=None,
-                    width=dp(65),
-                    background_color=PANEL,
-                )
-            )
+            header.add_widget(icon_button('arrow-left', self.show_chat_list))
+        self.header_avatar = Avatar('مهر', '10', pos_hint={'center_y': .5})
+        header.add_widget(self.header_avatar)
         titles = BoxLayout(orientation="vertical")
-        self.heading = label("مهر", halign="right")
-        self.statuslabel = label("آفلاین", font_size=dp(11))
+        self.heading = label("مهر", halign="right", shorten=True, font_size=dp(17))
+        self.statuslabel = label("آفلاین", font_size=dp(12), halign="right")
+        self.statuslabel.color = MUTED
         titles.add_widget(self.heading)
         titles.add_widget(self.statuslabel)
         header.add_widget(titles)
-        header.add_widget(
-            button(
-                "اطلاعات",
-                self.chat_info,
-                size_hint_x=None,
-                width=dp(75),
-                background_color=PANEL,
-            )
-        )
+        header.add_widget(icon_button('more', self.chat_info))
         self.mainpane.add_widget(header)
         self.messagescroll = ScrollView()
         self.messagebox = BoxLayout(
@@ -565,15 +619,16 @@ class MehrApp(App):
         self.messagescroll.bind(height=fit)
         self.messagebox.bind(height=fit)
         self.messagescroll.add_widget(wrap)
-        self.mainpane.add_widget(self.messagescroll)
+        wallpaper = FloatLayout()
+        wallpaper.add_widget(ChatWallpaper(pos_hint={"x":0,"y":0}))
+        self.messagescroll.pos_hint = {"x":0,"y":0}
+        wallpaper.add_widget(self.messagescroll)
+        self.mainpane.add_widget(wallpaper)
         composer = Surface(
             size_hint_y=None, height=dp(68), padding=dp(10), spacing=dp(7)
         )
-        composer.add_widget(
-            button(
-                "+", self.attach, size_hint_x=None, width=dp(42), background_color=PANEL
-            )
-        )
+        composer.add_widget(icon_button('attach', self.attach))
+        composer.add_widget(icon_button('smile', self.emoji_picker))
         self.compose = field("پیام", multiline=True)
         self.compose.height = dp(48)
         self.compose.bind(
@@ -582,9 +637,13 @@ class MehrApp(App):
             )
         )
         composer.add_widget(self.compose)
-        composer.add_widget(button("ارسال", self.send, size_hint_x=None, width=dp(70)))
+        composer.add_widget(icon_button("send", self.send, primary=True))
         self.composer = composer
         self.mainpane.add_widget(composer)
+        def pane_resized(*_):
+            self._view_signature = None
+            Clock.schedule_once(lambda *_: self.refresh(), .05)
+        self.mainpane.bind(width=pane_resized)
         body.add_widget(self.mainpane)
         self.rootbox.add_widget(body)
         if self.mobile:
@@ -668,7 +727,7 @@ class MehrApp(App):
                 height=dp(76),
                 padding=dp(10),
                 spacing=dp(10),
-                color=(0.20, 0.40, 0.56, 1) if cid == self.chat else PANEL,
+                color=BLUE if cid == self.chat else PANEL,
             )
             row.bind(on_release=lambda _, c=cid: self.select(c))
             row.add_widget(Avatar(name, cid, pos_hint={"center_y": 0.5}))
@@ -681,7 +740,8 @@ class MehrApp(App):
                 shorten=True,
                 shorten_from="right",
             )
-            subtitle.color = (0.61, 0.69, 0.75, 1)
+            title.color = (1,1,1,1) if cid == self.chat else TEXT
+            subtitle.color = (.87,.94,1,1) if cid == self.chat else MUTED
             for item in (title, subtitle):
                 item.bind(
                     size=lambda widget, value: setattr(widget, "text_size", value)
@@ -695,12 +755,12 @@ class MehrApp(App):
                     width=dp(34),
                     font_size=dp(10),
                 )
-                stamp.color = (0.61, 0.69, 0.75, 1)
+                stamp.color = (.87,.94,1,1) if cid == self.chat else MUTED
                 row.add_widget(stamp)
             self.chatlist.add_widget(row)
         if not self.chatlist.children:
             empty = wrapped_label("هنوز گفتگویی ندارید\nبا + یک مخاطب یا گروه اضافه کنید", size_hint_y=None, height=dp(140), font_size=dp(14))
-            empty.color = (0.58, 0.68, 0.77, 1)
+            empty.color = MUTED
             self.chatlist.add_widget(empty)
 
     def select(self, cid):
@@ -763,15 +823,13 @@ class MehrApp(App):
                     self.refresh()
 
                 self.messagebox.add_widget(button("پیام‌های قبلی", more))
-            available = max(
-                dp(240), Window.width - (0 if self.mobile else dp(348)) - dp(60)
-            )
+            available = max(dp(150), self.mainpane.width - dp(40))
             previous_day = None
             for m in messages[-self.view_limit :]:
                 day = time.strftime("%Y/%m/%d", time.localtime(m["created"]))
                 if day != previous_day:
                     date_row = AnchorLayout(size_hint_y=None, height=dp(36))
-                    chip = Surface(size_hint=(None, None), size=(dp(120), dp(28)), color=(0.13, 0.20, 0.26, 1))
+                    chip = Surface(size_hint=(None, None), size=(dp(120), dp(28)), color=(.68,.77,.76,.9))
                     chip.add_widget(label(day, font_size=dp(11)))
                     date_row.add_widget(chip)
                     self.messagebox.add_widget(date_row)
@@ -782,39 +840,17 @@ class MehrApp(App):
                     if m["kind"] != "file"
                     else "فایل: " + m.get("filename", "")
                 )
-                max_chars = max(18, min(70, int(available * 0.75 / dp(9))))
-                wrapped = "\n".join(
-                    "\n".join(
-                        textwrap.wrap(line, width=max_chars, replace_whitespace=False)
-                        or [""]
-                    )
-                    for line in text.split("\n")
-                )
-                height = dp(57 + 24 * max(1, len(wrapped.split("\n"))))
-                width = min(
-                    available * 0.82,
-                    max(
-                        dp(190),
-                        dp(
-                            28
-                            + min(
-                                max_chars,
-                                max((len(x) for x in wrapped.split("\n")), default=1),
-                            )
-                            * 9
-                        ),
-                    ),
-                )
-                line = BoxLayout(size_hint_y=None, height=height, spacing=dp(5))
+                # Width follows the actual content area; height follows texture metrics.
+                width = min(available * .82, dp(440), max(dp(140), max(content_width(v,dp(15)) for v in text.split("\n"))+dp(28)))
+                line = BoxLayout(size_hint_y=None, height=dp(70), spacing=dp(5))
                 if own:
                     line.add_widget(Label())
-                bubble = Surface(
-                    orientation="vertical",
-                    padding=[dp(12), dp(7)],
-                    size_hint_x=None,
-                    width=width,
-                    color=(0.16, 0.32, 0.43, 1) if own else (0.13, 0.19, 0.25, 1),
-                )
+                bubble = Surface(orientation='vertical', padding=[dp(12),dp(6)],
+                                 size_hint=(None,None), width=width,
+                                 color=(.89,1,.79,1) if own else PANEL)
+                bubble.rect.radius = [dp(16),dp(16),dp(4),dp(16)] if own else [dp(16),dp(16),dp(16),dp(4)]
+                bubble.bind(minimum_height=bubble.setter('height'))
+                bubble.bind(height=lambda w,h,row=line: setattr(row,'height',h))
                 if self.chat in self.engine.d["groups"]:
                     bubble.add_widget(
                         label(
@@ -825,14 +861,17 @@ class MehrApp(App):
                         )
                     )
                     line.height += dp(17)
-                display = label(wrapped, halign="right", valign="middle")
-                display.bind(size=lambda w, v: setattr(w, "text_size", v))
+                display = MessageText(text)
                 bubble.add_widget(display)
                 footer = BoxLayout(size_hint_y=None, height=dp(23))
                 stamp = time.strftime("%H:%M", time.localtime(m["created"]))
-                footer.add_widget(
-                    label(stamp + "  " + (m["state"] if own else ""), font_size=dp(10))
-                )
+                footer.add_widget(label(stamp, font_size=dp(10), halign='right'))
+                if own:
+                    checks = label('', size_hint_x=None, width=dp(23), font_size=dp(16))
+                    checks.font_name = str(ROOT / 'assets/TelegramIcons.ttf')
+                    checks.text = ICONS.get('message-read' if m['state'] == 'تحویل شد' else 'check', ICONS.get('check', ''))
+                    checks.color = (.25,.57,.32,1)
+                    footer.add_widget(checks)
                 menu = button(
                     "...",
                     lambda mid=m["id"]: self.message_menu(mid),
@@ -875,13 +914,20 @@ class MehrApp(App):
         for title, fn in [
             ("حساب کاربری", self.profile_dialog),
             ("سرورها", self.settings),
-            ("کارت هویت من", self.my_card),
+            ("QR و شناسه من", self.my_card),
             ("تغییر رمز", self.password_dialog),
             ("ذخیره پشتیبان", self.backup_dialog),
+            ("درباره مهر و مجوزها", self.about_dialog),
             ("قفل", self.lock_account),
         ]:
             box.add_widget(button(title, lambda f=fn: (pop.dismiss(), f())))
         box.add_widget(button("بستن", pop.dismiss))
+
+    def about_dialog(self):
+        box=BoxLayout(orientation='vertical',spacing=dp(12))
+        box.add_widget(wrapped_label('MehrChat '+__version__+'\nرابط بومی با آیکون‌های Telegram Web A\nCopyright Telegram Web A contributors\nGPL-3.0 · نرم‌افزار آزاد، بدون ضمانت\nTwemoji graphics © Twitter / contributors · CC-BY-4.0\nhttps://github.com/Realjustawall/MehrChat\nhttps://github.com/Ajaxy/telegram-tt\nمجوزها همراه برنامه در assets/licenses هستند.',size_hint_y=None,height=dp(260),font_size=dp(14)))
+        pop=self.dialog('درباره مهر',box)
+        box.add_widget(button('بستن',pop.dismiss,background_color=BG))
 
     def new_menu(self):
         box = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(10))
@@ -1081,76 +1127,148 @@ class MehrApp(App):
 
     def my_card(self):
         card = self.engine.card
-        box = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
-        fingerprint = field("اثر انگشت", multiline=True)
-        fingerprint.text = card["body"]["id"]
-        data = field("کارت هویت", multiline=True)
-        data.text = json.dumps(card, ensure_ascii=False)
-        box.add_widget(label("اثر انگشت را از مسیر مطمئن به مخاطب بدهید"))
-        box.add_widget(fingerprint)
-        box.add_widget(data)
-        pop = self.dialog("کارت هویت", box)
-        box.add_widget(
-            button(
-                "ذخیره کارت",
-                lambda: self.choose_document(
-                    "save",
-                    "identity.json",
-                    lambda f: f.write(json.dumps(card, ensure_ascii=False).encode()),
-                ),
-            )
-        )
-        box.add_widget(button("بستن", pop.dismiss))
+        number, secret = address(card)
+        payload = invite(card)
+        box = BoxLayout(orientation='vertical', spacing=dp(12), padding=dp(4))
+        image_data = qr_png(payload)
+        texture = CoreImage(io.BytesIO(image_data), ext='png').texture
+        texture.mag_filter = 'nearest'
+        qr = Image(texture=texture, size_hint_y=None, height=dp(238))
+        box.add_widget(qr)
+        box.add_widget(label(self.engine.identity['name'], font_size=dp(22), size_hint_y=None, height=dp(36)))
+        box.add_widget(label(' '.join(number[i:i+4] for i in range(0,12,4)), font_size=dp(27), size_hint_y=None, height=dp(42)))
+        box.add_widget(label(secret, font_size=dp(23), size_hint_y=None, height=dp(36)))
+        box.add_widget(wrapped_label('مخاطب QR را اسکن کند یا شناسه و رمز ۵ حرفی را وارد کند. این رمز، رمز ورود حساب شما نیست.', font_size=dp(13), size_hint_y=None, height=dp(70)))
+        pop = self.dialog('QR و شناسه من', box)
+        box.add_widget(button('کپی شناسه و رمز', lambda: Clipboard.copy(number + ' ' + secret)))
+        box.add_widget(button('کپی لینک مخاطب', lambda: Clipboard.copy(payload), background_color=BG))
+        box.add_widget(button('ذخیره تصویر QR', lambda: self.choose_document('save','mehr-contact.png',lambda f:f.write(image_data)), background_color=BG))
+        box.add_widget(button('ذخیره کارت', lambda: self.choose_document('save','identity.json',lambda f:f.write(json.dumps(card,ensure_ascii=False).encode())), background_color=BG))
+        box.add_widget(button('بستن', pop.dismiss, background_color=BG))
 
     def contact_dialog(self):
-        box = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
-        card = field("کارت هویت مخاطب", multiline=True)
-        fp = field("اثر انگشت تأییدشده", multiline=True)
-        username = field("نام کاربری")
-        box.add_widget(username)
-
+        box = BoxLayout(orientation='vertical', spacing=dp(12), padding=dp(4))
+        box.add_widget(wrapped_label('با شناسه و رمز اشتراک یا QR، مخاطب را پیدا کنید.', size_hint_y=None, height=dp(48), font_size=dp(14)))
+        number, secret = field('شناسه ۱۲ رقمی'), field('رمز اشتراک ۵ حرفی')
+        number.input_filter = lambda value, undo: ''.join(c for c in value if c.isdecimal() or c in ' -')
+        number.halign = secret.halign = 'center'
+        number.font_size = dp(23)
+        secret.font_size = dp(21)
+        secret.bind(text=lambda w,t:setattr(w,'text',t.upper()) if t != t.upper() else None)
+        box.add_widget(number); box.add_widget(secret)
+        preview = wrapped_label('پس از بررسی، نام مخاطب اینجا نمایش داده می‌شود.', size_hint_y=None, height=dp(62), font_size=dp(14))
+        raw_card, fingerprint = field('کارت هویت مخاطب', multiline=True), field('اثر انگشت تأییدشده', multiline=True)
+        engine = self.engine
+        pop = self.dialog('افزودن مخاطب', box)
+        self._contact_form = {'number':number, 'secret':secret, 'card':raw_card, 'fingerprint':fingerprint, 'popup':pop}
+        def fill(card):
+            if self.engine is not engine or pop not in self.open_popups:
+                return
+            check_address(card, number.text, secret.text)
+            raw_card.text = json.dumps(card, ensure_ascii=False)
+            fingerprint.text = card['body']['id']
+            preview.text = fa(card['body']['name'] + '\n@' + card['body']['username'])
+            add_button.disabled = False
+        def scanned(payload):
+            card, n, code = parse_invite(payload)
+            number.text, secret.text = n, code
+            fill(card)
+        self._contact_fill_invite = scanned
+        def invalidate(*_):
+            raw_card.text = fingerprint.text = ''
+            add_button.disabled = True
+            preview.text = fa('برای نمایش مخاطب، بررسی را بزنید یا QR را اسکن کنید.')
+        def paste():
+            value = Clipboard.paste().strip()
+            if value.startswith('mehrchat:'):
+                scanned(value)
+            else:
+                match = re.fullmatch(r'([\d\s-]{12,20})\s+([a-zA-Z]{5})', value)
+                if not match:
+                    raise ValueError('لینک مخاطب یا شناسه و رمز اشتراک را کپی کنید')
+                number.text, secret.text = match.groups()
         def lookup():
-            value = username.text.strip()
-            self.engine.lookup(value)
-            deadline = time.monotonic() + 15
-
+            key = engine.lookup_contact(number.text, secret.text)
+            preview.text = fa('در حال بررسی هویت مخاطب…')
+            deadline = time.monotonic()+15
             def check(*_):
-                if not self.engine:
+                if self.engine is not engine or pop not in self.open_popups:
                     return False
-                result = self.engine.d["lookup_results"].pop(value, None)
+                with engine.lock:
+                    result = engine.d['lookup_results'].pop(key, None)
                 if result is not None:
-                    if result.get("card"):
-                        card.text = json.dumps(result["card"], ensure_ascii=False)
+                    if result.get('card'):
+                        self.guarded(lambda:fill(result['card']))
                     else:
-                        self.error("کاربر آنلاین پیدا نشد؛ کارت هویت را وارد کنید")
+                        preview.text = fa('مخاطب پیدا نشد؛ شناسه، رمز و سرور مشترک را بررسی کنید.')
                     return False
-                return time.monotonic() < deadline
-
-            Clock.schedule_interval(check, 0.2)
-
-        box.add_widget(button("جستجو", lookup))
-        box.add_widget(card)
-        box.add_widget(fp)
-        pop = self.dialog("مخاطب جدید", box)
-
-        def load(f):
-            raw = f.read(64 * 1024).decode()
-            Clock.schedule_once(lambda *_: setattr(card, "text", raw))
-
-        box.add_widget(
-            button(
-                "بازکردن کارت",
-                lambda: self.choose_document("open", "identity.json", load),
-            )
-        )
-
+                if time.monotonic() >= deadline:
+                    preview.text = fa('پاسخی دریافت نشد. اتصال را بررسی کنید یا QR مخاطب را اسکن کنید.')
+                    return False
+                return True
+            event = Clock.schedule_interval(check,.2)
+            pop.bind(on_dismiss=lambda *_:event.cancel())
+        box.add_widget(button('بررسی مخاطب', lambda:self.guarded(lookup)))
+        actions = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
+        actions.add_widget(button('اسکن QR', lambda:self.scan_qr(lambda value:self.guarded(lambda:scanned(value))), background_color=BG))
+        def load_image(stream):
+            raw=stream.read(12*1024*1024+1)
+            def work():
+                try:
+                    value=decode_image(raw)
+                    Clock.schedule_once(lambda *_:self.guarded(lambda:scanned(value)))
+                except Exception:
+                    Clock.schedule_once(lambda *_:self.error('QR معتبر در تصویر پیدا نشد'))
+            threading.Thread(target=work,daemon=True).start()
+        actions.add_widget(button('تصویر QR', lambda:self.choose_document('open','mehr-contact.png',load_image), background_color=BG))
+        box.add_widget(actions)
+        box.add_widget(button('چسباندن لینک یا شناسه', lambda:self.guarded(paste), background_color=BG))
+        box.add_widget(preview)
         def add():
-            pid = self.engine.add_contact(card.text, fp.text)
-            pop.dismiss()
-            self.select(self.engine.dm_id(pid))
+            card=json.loads(raw_card.text)
+            check_address(card,number.text,secret.text)
+            pid=engine.add_contact(raw_card.text,card['body']['id'])
+            pop.dismiss();self.select(engine.dm_id(pid))
+        add_button=button('افزودن',lambda:self.guarded(add))
+        add_button.disabled=True
+        number.bind(text=invalidate);secret.bind(text=invalidate)
+        box.add_widget(add_button)
+        # Advanced signed-card import is retained for existing contacts/backups.
+        def advanced():
+            fields=BoxLayout(orientation='vertical',spacing=dp(10))
+            fields.add_widget(raw_card);fields.add_widget(fingerprint)
+            extra=self.dialog('کارت هویت و اثر انگشت',fields)
+            def validate():
+                card=json.loads(raw_card.text)
+                if fingerprint.text.replace(' ','').lower()!=check_card(card)['id']:
+                    raise ValueError('اثر انگشت مطابقت ندارد')
+                n,code=address(card)
+                number.text,secret.text=n,code
+                fill(card);extra.dismiss()
+            fields.add_widget(button('تأیید کارت',lambda:self.guarded(validate)))
+            fields.add_widget(button('بازکردن کارت',lambda:self.choose_document('open','identity.json',lambda f:setattr(raw_card,'text',f.read(64*1024).decode())),background_color=BG))
+        box.add_widget(button('ورود کارت هویت',advanced,background_color=BG))
+        box.add_widget(button('بستن',pop.dismiss,background_color=BG))
 
-        box.add_widget(button("افزودن", lambda: self.guarded(add)))
-        box.add_widget(button("بستن", pop.dismiss))
+    def scan_qr(self, callback):
+        from .qr_scanner import open_scanner
+        open_scanner(self,callback)
+
+    def emoji_picker(self):
+        box=BoxLayout(orientation='vertical',spacing=dp(12))
+        grid=GridLayout(cols=6,spacing=dp(12),size_hint_y=None)
+        grid.bind(minimum_height=grid.setter('height'))
+        popup=self.dialog('ایموجی',box)
+        for value in EMOJI:
+            tile=ChatRow(size_hint_y=None,height=dp(48),padding=dp(8),color=BG)
+            tile.add_widget(Image(source=emoji_path(value)))
+            def insert(*_,emoji=value):
+                self.compose.insert_text(emoji)
+                popup.dismiss();self.compose.focus=True
+            tile.bind(on_release=insert)
+            grid.add_widget(tile)
+        box.add_widget(grid)
+        box.add_widget(button('بستن',popup.dismiss,background_color=BG))
 
     def group_dialog(self, edit_chat=None):
         box = BoxLayout(orientation="vertical", spacing=dp(8), padding=dp(10))
@@ -1415,6 +1533,9 @@ class MehrApp(App):
 
     def on_pause(self):
         if not getattr(self, "_picking_document", False):
+            scanner = getattr(self, "_scanner_popup", None)
+            if scanner:
+                scanner.dismiss()
             self.lock_account()
         return True
 

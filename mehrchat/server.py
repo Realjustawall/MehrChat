@@ -13,6 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 from .crypto import create_identity, public_card, check_card, verify, pack
 from .wire import accept
+from .contact_invite import address, normalize
 
 # A 4 MiB attachment is base64 inside encrypted JSON and the ciphertext is
 # base64 again. Allow the signed 32-member/64-epoch descriptor as well.
@@ -57,6 +58,11 @@ class Relay:
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS retractions (id TEXT, sender TEXT, recipient TEXT, expires INTEGER, PRIMARY KEY(id,sender,recipient))"
         )
+        columns = {row[1] for row in self.db.execute('PRAGMA table_info(users)')}
+        for name in ('share_address', 'public_card'):
+            if name not in columns:
+                self.db.execute('ALTER TABLE users ADD COLUMN ' + name + ' TEXT')
+        self.db.execute('CREATE UNIQUE INDEX IF NOT EXISTS share_address ON users(share_address)')
         self.db.commit()
         self.live_cards = {}
         self.active = set()
@@ -68,11 +74,16 @@ class Relay:
         try:
             with self.db:
                 self.db.execute(
-                    "INSERT INTO users(id,username) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET username=excluded.username",
-                    (b["id"], b["username"].lower()),
+                    "INSERT INTO users(id,username,share_address,public_card) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET username=excluded.username,share_address=excluded.share_address,public_card=excluded.public_card",
+                    (b["id"], b["username"].lower(), "".join(address(card)), json.dumps(card)),
                 )
         except sqlite3.IntegrityError as exc:
             raise ValueError("این نام کاربری قبلاً ثبت شده است") from exc
+
+    def lookup_address(self, number, code):
+        number, code = normalize(number, code)
+        row = self.db.execute('SELECT public_card FROM users WHERE share_address=?', (number + code,)).fetchone()
+        return {'ok': True, 'card': json.loads(row[0]) if row and row[0] else None}
 
     def retract(self, card, item):
         request = verify(card, item)
@@ -255,6 +266,8 @@ class Relay:
                     result = self.put(card, request["item"])
                 elif op == "retract":
                     result = self.retract(card, request["item"])
+                elif op == "lookup_code":
+                    result = self.lookup_address(request.get("number", ""), request.get("code", ""))
                 elif op == "lookup":
                     username = request.get("username", "")
                     if not isinstance(username, str) or len(username) > 32:

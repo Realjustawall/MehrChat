@@ -2,7 +2,7 @@
 
 MehrChat is a self-hosted native messenger for Windows, Linux and Android. It provides private conversations, groups, encrypted attachments, delivery receipts, message expiry and encrypted identity backups. The interface is Persian and bundles the Vazirmatn font; these installation instructions are in English.
 
-**Version 0.5.0.** Download application packages from [Releases](https://github.com/Realjustawall/MehrChat/releases). Builds and test reports are available in [GitHub Actions](https://github.com/Realjustawall/MehrChat/actions). Read the [security model](SECURITY.md) before operating a server. No independent security audit is claimed.
+**Version 0.6.0.** Download application packages from [Releases](https://github.com/Realjustawall/MehrChat/releases). Builds and test reports are available in [GitHub Actions](https://github.com/Realjustawall/MehrChat/actions). Read the [security model](SECURITY.md) before operating a server. No independent security audit is claimed.
 
 ## Choose your installation
 
@@ -10,9 +10,9 @@ MehrChat is a self-hosted native messenger for Windows, Linux and Android. It pr
 | --- | --- | --- |
 | `MehrChat-Windows-x64.zip` | Windows desktop client and Windows relay | Extract the complete archive; use the instructions below. |
 | `MehrChat-Ubuntu-x64.tar.gz` | Linux desktop client and compiled relay | Extract the complete archive; use the desktop or legacy relay instructions below. |
-| `MehrChat-0.5.0-Android-arm64-v8a.apk` | Signed Android release for modern 64-bit ARM phones | Install the APK and configure your server. |
-| `MehrChat-0.5.0-Server-Source.tar.gz` | Interactive Ubuntu TLS installer and server source | Recommended server deployment. |
-| `MehrChat-0.5.0-UI-Screenshots.zip` | Actual Windows and Android emulator UI captures | Extract to view connection, login, conversations and settings. |
+| `MehrChat-0.6.0-Android-arm64-v8a.apk` | Signed Android release for modern 64-bit ARM phones | Install the APK and configure your server. |
+| `MehrChat-0.6.0-Server-Source.tar.gz` | Interactive Ubuntu TLS installer and server source | Recommended server deployment. |
+| `MehrChat-0.6.0-UI-Screenshots.zip` | Actual Windows and Android emulator UI captures | Extract to view connection, login, conversations and settings. |
 | `SHA256SUMS.txt` | Download checksums | Check your downloaded files before installation. |
 
 Windows executables are not Authenticode-signed. Android test/debug APKs and unsigned APKs in Actions are development artifacts; use the signed release APK for normal installation. The Android emulator test runs on x86_64; the phone release is arm64-v8a. Physical-device behavior still needs device-specific trials.
@@ -27,6 +27,27 @@ sha256sum --ignore-missing -c SHA256SUMS.txt
 
 All checked files must report `OK`. The release also publishes `Android-signature-verification.txt` with the APK certificate SHA-256 fingerprint; compare it with `apksigner verify --print-certs your.apk` if Android SDK build-tools are installed.
 
+## Contact QR and short addresses (0.6.0)
+
+Open **Menu → My QR and ID**. Every existing or new identity has a stable **12-digit ID** and a **5-letter share code** (A–Z). Both remain unchanged when you edit your display name or username, change the vault password, or restore the same identity from backup. The share code is public invitation information, **not your account password or a login credential**.
+
+To add someone, open **+ → New contact** and either:
+
+- Enter their 12-digit ID and 5-letter share code, then check and confirm the displayed name. Persian digits, spaces in the ID and lowercase share letters are accepted. Both users must have registered with a common **0.6.0 relay** at least once. The recipient can be offline after registration.
+- Scan their QR with the camera, open an existing QR image, or paste their contact link. The signed public identity card is checked and the form fills automatically. Confirm before adding. QR exchange works without a directory lookup or internet connection; delivering messages still requires a reachable relay.
+
+Camera access is requested only when scanning. Images and camera frames are processed locally. Close the scanner to release the camera; if the camera is absent or permission is denied, use a QR image or the manual ID/code. Never enter a vault/account password in this form.
+
+The ID and share code are derived from the public key fingerprint and checked on the client, so an unrelated relay-supplied identity is rejected. This short identifier is a convenience check with less entropy than the full fingerprint. For sensitive conversations, exchange the full QR directly or verify the full identity fingerprint through a trusted channel. Sharing a QR also shares your public name, username and public keys, never private keys.
+
+Upgrade the relay for short-address search. Its existing `users` database is migrated in place to store signed **public** identity cards and addresses. Private keys remain on client devices. Older clients can still use their signed identity-card/fingerprint workflow.
+
+## Interface and licenses
+
+Desktop and Android use the same responsive native interface with a Telegram Web inspired light layout, pixel-measured Persian/English wrapping, compact scrollable dialogs, offline color emoji, and a camera/QR contact flow. The Windows interface remains native; it does not log into Telegram or load a remote website. Toolbar icons are adapted from **Telegram Web A** (`Ajaxy/telegram-tt`, commit `f67a40879a7d78c2683ec5a296cf55bc22417d56`), with the converted font and provenance bundled in `assets/telegram-source.txt`. This version is distributed under **GPL-3.0**; see `LICENSE` and `assets/licenses/Telegram-Web-GPL-3.0.txt`.
+
+Emoji graphics are **Twemoji 16.0.1**, © Twitter and contributors, **CC-BY-4.0**; see `assets/licenses/Twemoji-graphics-LICENSE.txt`. The in-app About screen includes attribution. No Telegram logo, Telegram service integration or affiliation is implied.
+
 ## 1. Deploy a secure Ubuntu server
 
 ### Requirements
@@ -39,11 +60,11 @@ All checked files must report `OK`. The release also publishes `Android-signatur
 
 ### Download and run
 
-Download `MehrChat-0.5.0-Server-Source.tar.gz` from the release and verify its checksum. Then:
+Download `MehrChat-0.6.0-Server-Source.tar.gz` from the release and verify its checksum. Then:
 
 ```sh
-tar -xzf MehrChat-0.5.0-Server-Source.tar.gz
-cd MehrChat-0.5.0
+tar -xzf MehrChat-0.6.0-Server-Source.tar.gz
+cd MehrChat-0.6.0
 sudo bash deploy/install-ubuntu.sh
 ```
 
@@ -54,7 +75,7 @@ sudo apt-get update
 sudo apt-get install -y git
 git clone https://github.com/Realjustawall/MehrChat.git
 cd MehrChat
-git checkout v0.5.0
+git checkout v0.6.0
 sudo bash deploy/install-ubuntu.sh
 ```
 
@@ -144,7 +165,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\uninstall-windows-c
 
 ## 3. Install the Android client
 
-Download `MehrChat-0.5.0-Android-arm64-v8a.apk` to a compatible Android phone (Android 8/API 26 or newer, 64-bit ARM). Open the APK and, if Android requests it, allow installation from the download source you chose. Verify the release checksum and signing certificate fingerprint against the published release information.
+Download `MehrChat-0.6.0-Android-arm64-v8a.apk` to a compatible Android phone (Android 8/API 26 or newer, 64-bit ARM). Open the APK and, if Android requests it, allow installation from the download source you chose. Verify the release checksum and signing certificate fingerprint against the published release information.
 
 For an existing installation, install the new APK over it. Android updates require the **same signing certificate** and a compatible version code. A debug APK uses another key and may not update to the official APK. Export an encrypted backup first; uninstalling Android deletes the local app identity and keys. If an installation reports a signature conflict, do not uninstall until the backup has been exported and its password retained.
 

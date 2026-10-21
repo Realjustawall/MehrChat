@@ -17,8 +17,6 @@ args = [
     "--hidden-import",
     "_cffi_backend",
     "--exclude-module",
-    "numpy",
-    "--exclude-module",
     "lxml",
     "--exclude-module",
     "matplotlib",
@@ -68,4 +66,6 @@ else:
         "assets" + os.pathsep + "assets",
         "main.py",
     ]
+if kind == 'client':
+    args += ['--collect-all', 'zxingcpp', '--collect-all', 'cv2', '--collect-all', 'qrcode']
 PyInstaller.__main__.run(args)

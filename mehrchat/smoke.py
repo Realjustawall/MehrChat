@@ -119,6 +119,8 @@ def install(app, result_path):
         app.compose.text = TEXT
         app.send()
         assert any(m.get("text") == TEXT for m in app.engine.d["messages"][chat])
+        app.engine.send(chat, 'سلام! چطوری؟ 😊 امروز وقت داری درباره پروژه صحبت کنیم؟')
+        app.engine.send(chat, 'پیام طولانی برای بررسی اندازه حباب و شکستن درست متن فارسی، English و شناسه‌های بدون فاصله: ' + 'ABC123'*12 + ' 🎉 ❤️')
         private_draft = "پیش‌نویس خصوصی"
         group_draft = "پیش‌نویس گروه"
         app.compose.text = private_draft
@@ -139,9 +141,23 @@ def install(app, result_path):
         assert app.compose.text == group_draft
         # Import/confirmation must also go through the same recipient-switch path.
         app.contact_dialog()
+        from .contact_invite import invite, address, decode_image, qr_png
+        app._contact_fill_invite(invite(peer))
+        assert app._contact_form['number'].text == address(peer)[0]
+        assert app._contact_form['secret'].text == address(peer)[1]
+        # Decode the actual QR pixels using the platform scanner, then fill and add.
+        encoded_qr = qr_png(invite(peer))
+        decoded = decode_image(encoded_qr)
+        if platform == 'android':
+            # Exercise the exact ZXing luminance decoder used by the camera.
+            from .contact_invite import decode_android_luminance
+            image=CoreImage(io.BytesIO(encoded_qr),ext='png').texture
+            rgba=image.pixels
+            gray=bytes(rgba[i] for i in range(0,len(rgba),4))
+            width,height=map(int,image.size)
+            assert decode_android_luminance(width,height,gray)==decoded
+        app._contact_fill_invite(decoded)
         widgets = list(app.open_popups[-1].content.walk())
-        next(w for w in widgets if isinstance(w, TextInput) and w.hint_text == "کارت هویت مخاطب").text = json.dumps(peer)
-        next(w for w in widgets if isinstance(w, TextInput) and w.hint_text == "اثر انگشت تأییدشده").text = peer["body"]["id"]
         next(w for w in widgets if isinstance(w, Button) and w.text == fa("افزودن")).dispatch("on_release")
         assert app.chat == chat and app.compose.text == private_draft
         app.select(group)
@@ -157,6 +173,7 @@ def install(app, result_path):
             ("10-add-contact", app.contact_dialog),
             ("11-edit-group", lambda: app.group_dialog(group)),
             ("12-chat-info", app.chat_info),
+            ("13-emoji-picker", app.emoji_picker),
         ]
         pending_capture = None
 
@@ -243,6 +260,8 @@ def install(app, result_path):
                     assert app.sidebar.width == 0
                     assert app.mainpane.right <= app.root.width + 1
                     result = dict(
+                        contact_qr_pixel_decode=True,
+                        contact_invite_autofill=True,
                         responsive_navigation=True,
                         account_creation=True,
                         compiled_double_ratchet=True,
