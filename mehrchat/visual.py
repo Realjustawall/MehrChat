@@ -15,8 +15,8 @@ from kivy.properties import StringProperty, NumericProperty
 
 ASSETS = Path(__file__).resolve().parent.parent / 'assets'
 FONT = str(ASSETS / 'Vazirmatn-Regular.ttf')
-ICONS = json.loads((ASSETS / 'telegram-icons.json').read_text())
-EMOJI = json.loads((ASSETS / 'emoji.json').read_text())
+ICONS = json.loads((ASSETS / 'telegram-icons.json').read_text(encoding='utf-8'))
+EMOJI = json.loads((ASSETS / 'emoji.json').read_text(encoding='utf-8'))
 EMOJI_RE = re.compile('(' + '|'.join(re.escape(e) for e in sorted(EMOJI, key=len, reverse=True)) + ')')
 
 
