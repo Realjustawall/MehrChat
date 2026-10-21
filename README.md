@@ -88,7 +88,7 @@ The wizard performs these steps:
 5. Create a persistent private CA and a server certificate covering the confirmed IP and optional domain. Verified TLS is enabled even when no domain/public certificate is used.
 6. Optionally request a Let’s Encrypt certificate. If issuance fails, retain TLS with the private CA. Client certificate verification is never disabled.
 7. Install and start `mehr-relay.service`, set up daily certificate maintenance, verify the local TLS/Noise listener and export the **public** connection profile.
-8. Optionally request dedicated Windows/Android builds through GitHub Actions. See the dedicated-build section below.
+8. Build and download dedicated Windows/Android clients through GitHub Actions (enabled by default; choose `n` to skip). The wizard installs GitHub CLI and offers device-code login when needed. See the dedicated-build section below.
 
 Open the relay port in your provider firewall. If UFW is already enabled, allow your SSH port before applying any firewall changes, then permit the selected relay port:
 
@@ -203,7 +203,7 @@ python scripts/request-client-build.py /path/to/client-profile.json \
   --repo Realjustawall/MehrChat --ref main --output dedicated-clients
 ```
 
-The secure installer can run the same request after setup. It waits for the exact requested Actions run and downloads its artifacts. The profile, CA certificate and Noise pin are public deployment configuration; no server private key or administrator password is sent. Custom builds contain installable **test/debug** APKs and an **unsigned** Android release APK. Sign the latter with your own existing deployment signing key before distribution. The main project's signing key is never embedded in the source or automatically supplied to custom builds.
+The secure installer offers this request by default after the relay passes its TLS/Noise health check. It installs `gh` and offers browser/device-code authentication in the same account that runs setup. If authentication or a build fails, the verified relay keeps running and setup prints an exact resume command. Downloaded artifacts are stored in `/var/lib/mehrchat/dedicated-clients`. It waits for the exact requested Actions run and downloads its artifacts. The profile, CA certificate and Noise pin are public deployment configuration; no server private key or administrator password is sent. Custom builds contain installable **test/debug** APKs and an **unsigned** Android release APK. Sign the latter with your own existing deployment signing key before distribution. The main project's signing key is never embedded in the source or automatically supplied to custom builds.
 
 ## 6. Linux desktop and legacy relay packages
 

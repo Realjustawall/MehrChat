@@ -5,8 +5,17 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 source_root="$(cd -- "$(dirname -- "$0")/.." && pwd)"
+source /etc/os-release
+if [ "${ID:-}" != ubuntu ] || ! command -v systemctl >/dev/null; then
+  echo 'This installer requires Ubuntu with systemd. Use the offline package for other supported systems.'
+  exit 1
+fi
+exec 9>/run/lock/mehrchat-install.lock
+flock -n 9 || { echo 'Another MehrChat installation is running.'; exit 1; }
+trap 'echo "Setup stopped. Inspect: journalctl -u mehr-relay -n 80 --no-pager" >&2' ERR
+umask 022
 apt-get update
-apt-get install -y python3 python3-venv iproute2
+apt-get install -y python3 python3-venv iproute2 ca-certificates gh
 id mehrchat >/dev/null 2>&1 || useradd --system --home /var/lib/mehrchat --shell /usr/sbin/nologin mehrchat
 install -d -o mehrchat -g mehrchat -m 700 /var/lib/mehrchat
 install -d -m 755 /opt/mehrchat /opt/mehrchat/deploy /opt/mehrchat/scripts
