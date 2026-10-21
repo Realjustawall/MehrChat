@@ -130,7 +130,7 @@ def input_texture(value, size):
         else:
             text=CoreLabel(text=part,font_name=FONT,font_size=size,color=(.08,.12,.16,1));text.refresh()
             rendered.append((text.texture,text.texture.width,text.texture.height))
-    width=max(1,int(sum(p[1] for p in rendered)));height=max(1,int(max(p[2] for p in rendered)))
+    width=max(1,int(sum(p[1] for p in rendered)));height=max(1,int(max((p[2] for p in rendered),default=size*1.7)))
     fbo=Fbo(size=(width,height))
     with fbo:
         ClearColor(0,0,0,0);ClearBuffers();Color(1,1,1,1)

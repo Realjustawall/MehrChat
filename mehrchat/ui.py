@@ -184,7 +184,7 @@ class PersianInput(TextInput):
     def redraw(self, *_):
         self.shape.pos, self.shape.size = self.pos, self.size
         self.fill.rgba = (.90,.95,1,1) if self.focus else (.94,.95,.96,1)
-        self.ink.rgba = (1,1,1,1) if not self.password and EMOJI_RE.search(self.text) else (self.foreground_color if self.text else self.hint_text_color)
+        self.ink.rgba = (1,1,1,1) if not self.password and getattr(self,'color_emoji',False) and self.text else (self.foreground_color if self.text else self.hint_text_color)
 
     def _get_line_options(self):
         options = getattr(self, "_line_options", None)
@@ -199,7 +199,7 @@ class PersianInput(TextInput):
         return bool(re.search(r"[\u0600-\u06ff]", text)) and not self.password
 
     def _create_line_label(self, text, hint=False):
-        if not self.password and not hint and EMOJI_RE.search(text):
+        if not self.password and not hint and getattr(self,'color_emoji',False):
             cache = getattr(self, '_emoji_lines', {})
             key = (text, self.font_size)
             if key not in cache:
@@ -630,7 +630,13 @@ class MehrApp(App):
         composer.add_widget(icon_button('attach', self.attach))
         composer.add_widget(icon_button('smile', self.emoji_picker))
         self.compose = field("پیام", multiline=True)
+        self.compose.color_emoji = True
         self.compose.height = dp(48)
+        def fit_composer(*_):
+            self.compose.height = max(dp(48),min(dp(144),self.compose.minimum_height))
+            composer.height = self.compose.height + dp(20)
+        self.compose.bind(minimum_height=fit_composer)
+        Clock.schedule_once(fit_composer)
         self.compose.bind(
             text=lambda w, t: setattr(
                 w, "halign", "right" if re.search(r"[\u0600-\u06ff]", t) else "left"

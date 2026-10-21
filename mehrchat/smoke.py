@@ -121,6 +121,12 @@ def install(app, result_path):
         assert any(m.get("text") == TEXT for m in app.engine.d["messages"][chat])
         app.engine.send(chat, 'سلام! چطوری؟ 😊 امروز وقت داری درباره پروژه صحبت کنیم؟')
         app.engine.send(chat, 'پیام طولانی برای بررسی اندازه حباب و شکستن درست متن فارسی، English و شناسه‌های بدون فاصله: ' + 'ABC123'*12 + ' 🎉 ❤️')
+        app.compose.text = 'سلام\n😊 ❤️\nEnglish'
+        for logical, texture in zip(app.compose._lines, app.compose._lines_labels):
+            if not logical.strip():
+                continue
+            rgba = texture.pixels
+            assert any(rgba[i+3] > 0 and min(rgba[i:i+3]) < 180 for i in range(0,len(rgba),4)), 'Multiline composer lost a visible text line'
         private_draft = "پیش‌نویس خصوصی"
         group_draft = "پیش‌نویس گروه"
         app.compose.text = private_draft
@@ -260,6 +266,7 @@ def install(app, result_path):
                     assert app.sidebar.width == 0
                     assert app.mainpane.right <= app.root.width + 1
                     result = dict(
+                        multiline_emoji_composer=True,
                         contact_qr_pixel_decode=True,
                         contact_invite_autofill=True,
                         responsive_navigation=True,

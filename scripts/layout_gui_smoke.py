@@ -27,7 +27,7 @@ def start(*_):
     app.select(app.engine.dm_id(peer['body']['id']))
     for text in ['سلام! 😊 چطوری؟ ❤️','متن ترکیبی English and فارسی با ایموجی 🎉 و عدد ۱۲۳۴۵۶۷۸۹۰ ' * 4,'ABC123'*80]:
         app.engine.send(app.chat,text)
-    app.compose.text='سلام 😊 ❤️'
+    app.compose.text='سلام\n😊 ❤️\nEnglish'
     app.refresh()
     Clock.schedule_once(resize,.2)
 
@@ -52,6 +52,11 @@ def assert_messages(*_):
         assert all(width<=text.width+1 for width in text.line_widths),(Window.size,text.width,text.line_widths)
         assert text.x >= text.parent.x and text.right<=text.parent.right+1
         assert text.top<=text.parent.top+1 and text.y>=text.parent.y
+    assert app.compose.height >= min(app.compose.minimum_height,144)
+    for logical,texture in zip(app.compose._lines,app.compose._lines_labels):
+        if not logical.strip():continue
+        rgba=texture.pixels
+        assert any(rgba[i+3]>0 and min(rgba[i:i+3])<180 for i in range(0,len(rgba),4)), 'A plain composer line became white when another line contained emoji'
     app.contact_dialog()
     Clock.schedule_once(assert_dialog,.3)
 
