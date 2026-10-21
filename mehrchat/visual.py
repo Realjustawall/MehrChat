@@ -145,24 +145,26 @@ def input_texture(value, size):
 
 
 def widget_pixels(widget):
-    """Capture actual composed pixels with integer attachments (ANGLE/GLES safe)."""
-    from math import ceil
-    parent = widget.parent.canvas if widget.parent else None
-    index = parent.indexof(widget.canvas) if parent else -1
-    fbo = None
-    if index >= 0:
-        parent.remove(widget.canvas)
+    """Read a widget's region from the real window composition, including parents."""
+    from math import ceil, floor
+    from kivy.core.window import Window
+    width,height=map(int,Window.size)
+    layers=sorted((Window.canvas.indexof(w.canvas),w.canvas) for w in Window.children
+                  if Window.canvas.indexof(w.canvas)>=0)
+    fbo=Fbo(size=(width,height),with_stencilbuffer=True)
+    with fbo:
+        ClearColor(*Window.clearcolor);ClearBuffers()
     try:
-        fbo = Fbo(size=(max(1,ceil(widget.width)),max(1,ceil(widget.height))),with_stencilbuffer=True)
-        with fbo:
-            ClearColor(0,0,0,0);ClearBuffers()
-            Translate(-widget.x,-widget.y,0)
-        fbo.add(widget.canvas)
+        for _,canvas in layers:
+            Window.canvas.remove(canvas);fbo.add(canvas)
         fbo.draw()
-        return fbo.texture.pixels
+        pixels=fbo.texture.pixels
+        x,y=widget.to_window(0,0,relative=True)
+        left,bottom=max(0,floor(x)),max(0,floor(y))
+        right,top=min(width,ceil(x+widget.width)),min(height,ceil(y+widget.height))
+        assert right>left and top>bottom,'Widget is outside the rendered window'
+        return b''.join(pixels[(row*width+left)*4:(row*width+right)*4] for row in range(bottom,top))
     finally:
-        if fbo is not None and fbo.indexof(widget.canvas)>=0:
-            fbo.remove(widget.canvas)
-        if index>=0:
-            parent.insert(index,widget.canvas)
-            parent.ask_update()
+        for index,canvas in layers:
+            fbo.remove(canvas);Window.canvas.insert(index,canvas)
+        Window.canvas.ask_update()
