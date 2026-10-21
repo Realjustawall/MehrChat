@@ -53,6 +53,9 @@ def elf(name, raw):
 
 
 with zipfile.ZipFile(args.apk) as z:
+    dex=b''.join(z.read(n) for n in z.namelist() if n.endswith('.dex'))
+    for name in (b'Lorg/mehrchat/preview/PreviewBridge;',b'Lorg/mehrchat/preview/PreviewService;'):
+        assert name in dex,'Isolated media Java class missing from APK: '+name.decode()
     assert {n.split("/")[1] for n in z.namelist() if n.startswith("lib/")} == {
         args.arch
     }

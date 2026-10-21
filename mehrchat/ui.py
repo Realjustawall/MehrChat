@@ -330,6 +330,9 @@ class MehrApp(App):
     title = "مهر"
 
     def build(self):
+        if platform=='android':
+            from .android_preview import initialize
+            initialize()
         self.vault_path = self.data_path()
         if not getattr(self,"test_mode",False):
             appearance.load(self.vault_path.with_suffix(".appearance.json"))

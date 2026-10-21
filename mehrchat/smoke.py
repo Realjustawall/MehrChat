@@ -308,10 +308,8 @@ def install(app, result_path):
                             assert preview and preview['kind']=='image' and len(preview_pixels(preview))<=256*256*3
                             result['isolated_media_preview']=True
                             if platform=='android':
-                                from jnius import autoclass
-                                bridge=autoclass('org.mehrchat.preview.PreviewBridge')
-                                activity=autoclass('org.kivy.android.PythonActivity').mActivity
-                                isolated=json.loads(str(bridge.render(activity,b'probe','probe')))
+                                from .android_preview import render
+                                isolated=json.loads(render(b'probe','probe'))
                                 assert isolated['files_denied'] and isolated['uid_isolated'],isolated
                                 result['isolated_android_uid_and_files']=True
                             modes=[('fa','light'),('fa','dark'),('en','light'),('en','dark')]
