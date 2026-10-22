@@ -1,0 +1,29 @@
+{
+  "source_commit": "ad458884590d71735d13b192c6f7b6c1ebd00e21",
+  "captures": [
+    {
+      "path": "docs/assets/screenshots/en/conversation-dark.webp",
+      "language": "en",
+      "capture_method": "Native Kivy application in virtual X11 display; temporary encrypted account",
+      "source_png_sha256": "7fd7ae4c2fe7db41e8a134997334a4c7afeee6cc0da912f69559c1e0406c84cc"
+    },
+    {
+      "path": "docs/assets/screenshots/en/conversation-light.webp",
+      "language": "en",
+      "capture_method": "Native Kivy application in virtual X11 display; temporary encrypted account",
+      "source_png_sha256": "e94a2782473944f281293c1685211947d4374fb66733787603e54c8f3921ca6a"
+    },
+    {
+      "path": "docs/assets/screenshots/fa/conversation-dark.webp",
+      "language": "fa",
+      "capture_method": "Native Kivy application in virtual X11 display; temporary encrypted account",
+      "source_png_sha256": "c7605a114962bfecc98663bff7eb8404aa6f81c01641282e58b188fd65f0206b"
+    },
+    {
+      "path": "docs/assets/screenshots/fa/conversation-light.webp",
+      "language": "fa",
+      "capture_method": "Native Kivy application in virtual X11 display; temporary encrypted account",
+      "source_png_sha256": "7bdcb4ef0d518c5201469e70bf92de257475cf4c86e6d000b960c6517cc375d3"
+    }
+  ]
+}
